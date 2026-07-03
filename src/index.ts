@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import { applyAction, renderState, replayPath } from "./gameState";
 import { BRANES, BRANDS, KNOWN_CORRECT_PATHS } from "./levels";
 import { search } from "./search";
+import { heuristic } from "./heuristic";
 import {
   actionsToString,
   emptyEntityGrid,
@@ -28,7 +29,7 @@ const { values } = parseArgs({
     algorithm: { type: "string", short: "a" },
     frontierDepth: { type: "string" },
     naiveDifference: { type: "boolean" },
-    naiveDifferenceRank: { type: "boolean" },
+    heuristicRank: { type: "boolean" },
   },
 });
 
@@ -62,14 +63,20 @@ Board encoding: " " empty  "#" floor  "G" glass  "S" stairs  "W" wall  "B" butto
   process.exit(0);
 }
 
-const rawLevel = values.naiveDifferenceRank ? BRANES.find((l) => true) : BRANES.find((l) => l.name === values.brane);
+const rawLevel =
+  values.heuristicRank ?
+    BRANES.find((l) => true)
+  : BRANES.find((l) => l.name === values.brane);
 
 if (!rawLevel) {
   console.error(`Unknown brane: "${values.brane}"`);
   process.exit(1);
 }
 
-const rawBrand = values.naiveDifferenceRank ? BRANDS.find((l) => true) : BRANDS.find((l) => l.name === values.brand);
+const rawBrand =
+  values.heuristicRank ?
+    BRANDS.find((l) => true)
+  : BRANDS.find((l) => l.name === values.brand);
 
 if (!rawBrand) {
   console.error(`Unknown brand: "${values.brand}"`);
@@ -107,18 +114,57 @@ const knownCorrectPath = (KNOWN_CORRECT_PATHS[scenarioName] || "")
 import { naiveBoardDifference } from "./heuristic";
 async function main() {
   // Testing.
-  if (values.naiveDifferenceRank) {
-    let ndSet : [string,number][] = [];
+  if (values.heuristicRank) {
+    let ndSet: [string, number][] = [];
 
-    for (const brane of BRANES) {
-      for (const brand of BRANDS) {
-        ndSet.push([brane.name + "/" + brand.name, naiveBoardDifference(brane.board, brand.board)]);
+    const burdenSets = [
+      { wings: false, sword: false, endless: false },
+      { wings: false, sword: false, endless: true },
+      { wings: false, sword: true, endless: false },
+      { wings: true, sword: false, endless: false },
+      { wings: false, sword: true, endless: true },
+      { wings: true, sword: false, endless: true },
+      { wings: true, sword: true, endless: false },
+      { wings: true, sword: true, endless: true },
+    ];
+    for (const burdenSet of burdenSets) {
+      for (const brane of BRANES) {
+        // Skip unnecessary swords.
+        if (burdenSet.sword && pacifistBranes.includes(brane.name)) {
+          continue;
+        }
+
+        // Add heuristic to list.
+        for (const brand of BRANDS) {
+          ndSet.push([
+            brane.name +
+              "/" +
+              brand.name +
+              `${burdenSet.wings ? " wings" : ""}${burdenSet.sword ? " sword" : ""}${burdenSet.endless ? " endless" : ""}`,
+
+            heuristic(
+              brane.name,
+              {
+                board: brane.board,
+                entities: brane.entities,
+                player: brane.player,
+              },
+              brand.board,
+              true,
+              {
+                wings: burdenSet.wings,
+                sword: burdenSet.sword,
+                endless: burdenSet.endless,
+              },
+            ).total,
+          ]);
+        }
       }
     }
-    
+
     ndSet.sort((a, b) => a[1] - b[1]);
 
-    console.log("Naive difference ranking:",ndSet);
+    console.log("Naive difference ranking:", ndSet);
     process.exit(1);
   }
   if (values.naiveDifference) {
@@ -190,6 +236,7 @@ async function main() {
 
   const start = performance.now();
   const { path, nodesExplored } = await search({
+    braneName: values.brane ?? "UNKNOWN",
     initial: searchState,
     target: TARGET_BOARD,
     verbose: Number(values.verbose),

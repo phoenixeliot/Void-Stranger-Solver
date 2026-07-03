@@ -1,4 +1,4 @@
-import { renderState, applyAction } from "./gameState";
+import { renderState, renderStates, applyAction } from "./gameState";
 import { NO_BURDENS } from "./types";
 import type {
   Action,
@@ -71,9 +71,9 @@ export function applyPath(
       throw new Error(`Unknown path character "${char}" at index ${i}`);
     const next = applyAction(state, action, burdens);
     if (!next) {
-      if (VERBOSE >= 1) console.log(renderState(state));
       throw new Error(
-        `Invalid action "${action}" (${char}) at step ${i + 1} — move blocked`,
+        `Invalid action "${action}" (${char}) at step ${i + 1} — move blocked` +
+          renderStates(states),
       );
     }
     states.push(next);
@@ -104,6 +104,10 @@ const ENTITY_CHARS: Record<Entity, string> = {
   watcher_active: "!",
   chest: "C",
   monster_statue: "~",
+  maggot_up: "A",
+  leech_left: "L",
+  maggot_down: "Ɐ",
+  leech_right: "Ꞁ",
 };
 /** Converts a Board back to the compact string-array notation used in levels.ts. */
 
@@ -146,6 +150,10 @@ export function parseEntities(rows: string[]): EntityGrid {
     "!": "watcher_active",
     C: "chest",
     "~": "monster_statue",
+    A: "maggot_up",
+    L: "leech_left",
+    Ɐ: "maggot_down",
+    Ꞁ: "leech_right",
   };
   return rows.map((row) =>
     Array.from(row).map((ch) => {
@@ -160,4 +168,36 @@ export function parseEntities(rows: string[]): EntityGrid {
 
 export function emptyEntityGrid(): EntityGrid {
   return Array.from({ length: 6 }, () => Array<Entity>(6).fill("empty"));
+}
+
+export function gameStateContainsBreakables(state: GameState) {
+  // Check player's staffContents.
+  for (let content of state.player.staffContent) {
+    // Intentionally double-equals.
+    if (
+      content == "glass" ||
+      content == "trap_inactive" ||
+      content == "trap_active"
+    ) {
+      return true;
+    }
+  }
+
+  // Check the board.
+  for (let row of state.board) {
+    for (let cell of row) {
+      // Intentionally double-equals.
+      if (cell == "glass" || cell == "trap_inactive" || cell == "trap_active") {
+        return true;
+      }
+    }
+  }
+
+  // None found.
+  return false;
+}
+
+import { countFloorTiles, floorInStaff } from "./search";
+export function countFloorTilesInState(state: GameState) {
+  return countFloorTiles(state.board) + floorInStaff(state.player.staffContent);
 }

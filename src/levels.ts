@@ -48,7 +48,7 @@ export const BRANES: RawBraneInitial[] = [
       "      ",
       "      ",
     ]),
-    player: { row: 3, col: 2, facing: "down", staffContent: "empty" },
+    player: { row: 3, col: 2, facing: "down", staffContent: [] },
   },
   {
     name: "Eus",
@@ -70,7 +70,7 @@ export const BRANES: RawBraneInitial[] = [
       "      ",
       "     R",
     ]),
-    player: { row: 1, col: 2, facing: "down", staffContent: "empty" },
+    player: { row: 1, col: 2, facing: "down", staffContent: [] },
   },
   //{
   //  name: "Bee",
@@ -92,7 +92,7 @@ export const BRANES: RawBraneInitial[] = [
   //    "      ",
   //    "R     ",
   //  ]),
-  //  player: { row: 3, col: 3, facing: "down", staffContent: "empty" },
+  //  player: { row: 3, col: 3, facing: "down", staffContent: [] },
   //},
   {
     name: "Mon",
@@ -114,7 +114,7 @@ export const BRANES: RawBraneInitial[] = [
       "    R ",
       "R     ",
     ]),
-    player: { row: 3, col: 3, facing: "down", staffContent: "empty" },
+    player: { row: 3, col: 3, facing: "down", staffContent: [] },
   },
   {
     name: "Tan",
@@ -136,30 +136,30 @@ export const BRANES: RawBraneInitial[] = [
       " H~ H ",
       "  HH  ",
     ]),
-    player: { row: 0, col: 2, facing: "down", staffContent: "empty" },
+    player: { row: 0, col: 2, facing: "down", staffContent: [] },
   },
-  //{
-  //  name: "Gor",
-  //  // prettier-ignore
-  //  board: parseBoard([
-  //    "GG##GG",
-  //    "GG##GG",
-  //    "GGGGG#",
-  //    "#GGGG#",
-  //    "GG##GG",
-  //    "WG##GS",
-  //  ]),
-  //  // prettier-ignore
-  //  entities: parseEntities([
-  //    "M     ",
-  //    "      ",
-  //    "      ",
-  //    "     R",
-  //    "      ",
-  //    "R     ",
-  //  ]),
-  //  player: { row: 0, col: 5, facing: "down", staffContent: "empty" },
-  //},
+  {
+    name: "Gor",
+    // prettier-ignore
+    board: parseBoard([
+      "GG##GG",
+      "GG##GG",
+      "GGGGG#",
+      "#GGGG#",
+      "GG##GG",
+      "WG##GS",
+    ]),
+    // prettier-ignore
+    entities: parseEntities([
+      "M     ",
+      "      ",
+      "      ",
+      "     R",
+      "      ",
+      "R     ",
+    ]),
+    player: { row: 0, col: 5, facing: "down", staffContent: [] },
+  },
   {
     name: "Lev",
     // prettier-ignore
@@ -180,7 +180,7 @@ export const BRANES: RawBraneInitial[] = [
       "      ",
       "W     ",
     ]),
-    player: { row: 0, col: 5, facing: "down", staffContent: "empty" },
+    player: { row: 0, col: 5, facing: "down", staffContent: [] },
   },
   {
     name: "Lev-glass",
@@ -202,18 +202,62 @@ export const BRANES: RawBraneInitial[] = [
       "      ",
       "W     ",
     ]),
-    player: { row: 0, col: 5, facing: "down", staffContent: "empty" },
+    player: { row: 0, col: 5, facing: "down", staffContent: [] },
   },
   {
     name: "Cif",
     // prettier-ignore
     board: parseBoard([
-      "W#   W",
+      "##   #",
       " # # #",
       " #  # ",
       "# #   ",
       "#  #  ",
-      "W# S W",
+      "## S #",
+    ]),
+    // prettier-ignore
+    entities: parseEntities([
+      "R    R",
+      "      ",
+      "      ",
+      "      ",
+      "      ",
+      "R    R",
+    ]),
+    player: { row: 4, col: 3, facing: "down", staffContent: [] },
+  },
+  {
+    name: "DIS",
+    // prettier-ignore
+    board: parseBoard([
+      "##T #G",
+      "##GT #",
+      "GT####",
+      "#GT## ",
+      " ##G#T",
+      "A ##GS",
+    ]),
+    // prettier-ignore
+    entities: parseEntities([
+      " A  H ",
+      " R   ~",
+      "     W",
+      "   RL ",
+      "      ",
+      "R     ",
+    ]),
+    player: { row: 0, col: 0, facing: "down", staffContent: [] },
+  },
+  {
+    name: "Full",
+    // prettier-ignore
+    board: parseBoard([
+      "######",
+      "######",
+      "######",
+      "######",
+      "######",
+      "######",
     ]),
     // prettier-ignore
     entities: parseEntities([
@@ -224,7 +268,7 @@ export const BRANES: RawBraneInitial[] = [
       "      ",
       "      ",
     ]),
-    player: { row: 4, col: 3, facing: "down", staffContent: "empty" },
+    player: { row: 0, col: 0, facing: "down", staffContent: [] },
   },
 ];
 
@@ -338,6 +382,18 @@ export const BRANDS: RawBrand[] = [
     ]),
   },
   {
+    name: "DIS",
+    // prettier-ignore
+    board: parseBoard([
+      "      ",
+      "      ",
+      "      ",
+      "      ",
+      "      ",
+      "      "
+    ]),
+  },
+  {
     name: "Dev",
     // prettier-ignore
     board: parseBoard([
@@ -351,13 +407,158 @@ export const BRANDS: RawBrand[] = [
   },
 ];
 
+// prettier-ignore
 export const KNOWN_CORRECT_PATHS = {
-  "Add/Add": "URUZU",
-  "Eus/Eus": "LRURDRZLLZLZRRZRDLZDZDZLDR",
-  "Eus/Eus wings": "LLRRURDRRLDLZDZDZLDU",
-  "Eus/Tan wings": "LLRZUDDRDDLRZDURZRLZULUURZRLZRZUDDLDDUZDZD",
-  "Lev/Lev": "LZDDLRDLDLDLULLURULURURL",
-  "Lev/Lev wings": "LZDDLRDLDLDLULLURULURURL",
-  // "Tan/Tan":
-  //   "RDDDDLUZDZULDZRUZDLUZDZRDDDLLULRZLUZUURRLZDLLUDRZRRRRLZULRZRRLZRRRUDDLLUZUUURLZDUZUDZULLUDRULZDRZUZLZ",
+  // Add
+  "Add/Add":
+    "URUZU",
+  "Add/Add wings":
+    "URUZUU",
+    
+  "Add/Eus universal":
+    "IMPOSSIBLE",
+    
+  "Add/Bee universal":
+    "IMPOSSIBLE",
+    
+  "Add/Mon universal":
+    "IMPOSSIBLE",
+    
+  "Add/Tan universal":
+    "IMPOSSIBLE",
+
+  "Add/Gor":
+    "IMPOSSIBLE",
+  "Add/Gor wings":
+    "IMPOSSIBLE",
+
+  "Add/Lev":
+    "IMPOSSIBLE",
+  "Add/Lev wings":
+    "IMPOSSIBLE",
+
+  "Add/Cif":
+    "IMPOSSIBLE",
+  "Add/Cif wings":
+    "IMPOSSIBLE",
+
+  "Add/Trailer":
+    "IMPOSSIBLE",
+  "Add/Trailer wings":
+    "IMPOSSIBLE",
+    
+  "Add/DIS universal":
+    "IMPOSSIBLE",
+
+  // Eus
+  "Eus/Add wings":
+    "DLLDDRDRZRRURULUULLDLZRURRLZLRZRZDZUZUDZLLDLZRURRZLLRZLDLZLDUZUDZRRLZRURZLZDLDZURURZLZDLUZDZRUZLUDZRRLZRZUDRZRR",
+  
+  "Eus/Eus":
+    "LRURDRZLLZLZRRZRDLZDZDZLDR",
+  "Eus/Eus wings":
+    "LLRRURDRRLDLZDZDZLDUD",
+  "Eus/Eus endless":
+    "LZRURDRZDLZDZDZLDU",
+  "Eus/Eus wings endless":
+    "LZRURDRZDLZDZDZLDUD",
+  
+  "Eus/Bee wings":
+    "ULLDRZRRDDZDZDRLULULRUUZRRZLDZDZLUZRZUDZURULZLL",
+  
+  "Eus/Tan wings":
+    "LLRZUDDRDDLRZDURZRLZULUURZRLZRZUDDLDDUZDZDD",
+  
+  "Eus/Lev":
+    "LZURRDLZLRZDDUUDZDDZURUZLDUZDZDLZRZULZRUZDZULRZRRZLLRZRLZUDZDRZLUZDDZRU",
+  
+  "Eus/Cif":
+    "LZRRLZDLZRRLZUUDZRUDZDZUZRLZDZRZLZDUZDZDZRRUZLLUDZUZUZDDLRZUUDZUZURLDDUZDZDUZDZDLZRUUZDDUZDZDLRZUUZDZURLZLLRZURZRZR",
+  
+  "Eus/Trailer wings":
+    "DLLURZUDZDRUURRDRLLDRZLLRZDUZLDDUUDZDDUUZDZDLRZUZLZRZDRRURLLZDLLRZUZU",
+
+  // Bee
+
+  // Mon
+  "Mon/Eus":
+    "UUZLDDUZUZLRZRRZLLDZDDDRRZLUULUURLZLZDLDDRDRRRZLZRRUUULZLZDZDZUUULLUDZRRDZULLDLRZRZLDZLURZUDZDUZU",
+  
+  "Mon/Mon":
+    "UUZLDDUZUZLRZRZLZDLUZRRLZLZRRZLZRRDUUDZLLRZLDZDDUZLRRLZRDZULLDUZRLZUZDRRRZDZDRDLZUZUDZD",
+  
+  "Mon/Tan":
+    "RRUZDDLDLLLULLURRRZRRDDLLZRRUULLZRRDDLZRUULLLZUULZURRRDLZULZDDDRUZLUURZLDDDZLLRZLURRZRRRDDZUUZDLZRDZUUZU",
+
+  // Tan
+  "Tan/Eus sword":
+    "DDZRZZRZLLRZLZZLZRRDZULZZRDLZURZZRLZDZDUZDDZDDDUZDLLRZZRUZLLZDRUZLRZDDLZLLRRLZULLLZRRLZRULZRDZLURZRLZDZUZU",
+  
+  "Tan/Tan":
+    "RDDDDLUZDZULDZRUZDLUZDZRDDDLLULRZLUZUURRLZDLLUDRZRRRRRLZULRZRRLZRRUDDLLUZUUUURLZDUZUUDZULLUZDRUZLZDRZUZLZL",
+  "Tan/Tan wings sword":
+    "RZLZDRZRZLLZLZRRDDLLRZRDZDLLRRDLZLZUZDUZDD",
+
+  // Gor
+  // Gor/Add
+  
+  // Gor/Eus
+   
+  "Gor/Bee":
+    "DLLDZUUDZDUULZRRZLZDZDUZDZDLZRRULZDDUZDDRUZULDZLRZRRLLZRZRUUDZLUZRDLZURDZLUZU",
+    
+  //"Gor/Mon":
+    
+  "Gor/Gor":
+    "DZLDLUURLDZDDLDRDRZURUULL",
+  "Gor/Gor wings":
+    "DZLUDDLLLRZDRRDRLDLRZU",
+  "Gor/Gor sword":
+    "DZLDLUURLDZDDLDRDRZURUULL",
+  "Gor/Gor endless":
+    "DZLDLUURLDZDDLDRDRZUZRL",
+  "Gor/Gor wings sword":
+    "DZLUDDLLLRZDRRDRLDLRZU",
+  "Gor/Gor wings endless":
+    "DZLUDLLLDRDRDDRZUUZDRLU",
+  "Gor/Gor sword endless":
+    "DZLDLUURLDZDDLDRDRZUZRL",
+  "Gor/Gor wings sword endless":
+    "DZLUDLLLDRDRDDRZUUZDRLU",
+
+  // Lev
+  "Lev/Lev":
+    "LZDDLRDLDLDLULLURULURURL",
+  "Lev/Lev wings":
+    "LZLLLDLRDDLDRRDRURUULRDLU",
+  "Lev/Lev endless":
+    "LZDDLRDLDLDLULLURULURURL",
+  "Lev/Lev wings endless":
+    "LZLLLDLRDDLDRRDRURUULRDLU",
+
+  // Cif
+  "Cif/Cif":
+    "ZD",
+  "Cif/Cif wings":
+    "ZDD",
+  "Cif/Cif endless":
+    "ZD",
+  "Cif/Cif wings endless":
+    "ZDD",
+
+  // DIS
+  "DIS/Add wings sword":
+    "DDRUDRRRUUULDRDRUZURDDDLUZDRUZDDDZLLLLZUZDZDRZRRZRULLLRZLDLZLRZUZUUULURZDRRZLZRRZRZDLLZDLUZDLRZRDLZLL",
+  
+  "DIS/Eus wings sword":
+    "DDRUDRRRRUUULRZRDRDDDUZDLLLZLRDZLZUUZDLUUURDZDDUZDRDZDRZUZUUDZRULZRZDRZRDZUUZLLZRRDDZUULZRDZDULZDDUUDZRUUZUR",
+  
+  "DIS/Bee wings sword":
+    "DDRUDRRRRUULURZRRDDDLUZDRUZDDUZUDZDDZLUUZRLZRDDZLUZURDZDDLZLLZURULULULURZDZDUZRZRLZDLDZDRZUZUZRURLLRZRZUU",
+  
+  "DIS/Mon wings sword":
+    "DDRUDRRRRUULURZRDRDDLZURDZLUDZDDDLLZLRZURLLZLRZDUZUUDZDUZULUURZDZDDUZURZRUDZRLLRZLDDRLZLRZRRRRDZDD",
+  
+  "DIS/Tan wings sword":
+    "DDRUDRRRRRUUZLRRDDLUZRDZDUZLLLLZLUURZRDDZLDUZDZRUZDDZUUDZRRUUZDZDUZLRZDDRRLZURDZUUZDDLDLZRZRLZRLRUUUDZDLLLRZURDZRUUZUR",
 } as { [name: string]: string };

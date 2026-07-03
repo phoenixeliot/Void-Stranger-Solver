@@ -6,14 +6,27 @@ import {
   renderState,
   replayPath,
   stateKey,
+  inBounds,
+  facedTile,
+  stairsActive,
 } from "../gameState";
 import { heuristic } from "../heuristic";
-import type { Action, Board, Burdens, GameState } from "../types";
-import { NO_BURDENS } from "../types";
+import type {
+  Action,
+  Board,
+  Burdens,
+  GameState,
+  Entity,
+  EntityGrid,
+} from "../types";
+import { NO_BURDENS, Direction } from "../types";
 import { actionsToString } from "../utils";
 import {
   countFloorTiles,
   isPruned,
+  floorInStaff,
+  readBoardCouplet,
+  readEntityCouplet,
   type DfsCounters,
   type SearchOptions,
   type SearchResult,
@@ -31,6 +44,8 @@ const verbose = Number(process.env.VERBOSE);
  * to stop and preserve the path; return "continue" to recurse into children.
  */
 export async function idaDfs(
+  braneName: string,
+  initial: GameState,
   state: GameState,
   g: number,
   path: Action[],
@@ -50,7 +65,13 @@ export async function idaDfs(
     h: number,
   ) => Promise<"found" | "continue">,
 ): Promise<"found" | number> {
-  const h = heuristic(state, target, requireFinalJump).total;
+  const h = heuristic(
+    braneName,
+    state,
+    target,
+    requireFinalJump,
+    burdens,
+  ).total;
   const f = g + h;
 
   if (f > threshold) {
@@ -67,7 +88,9 @@ export async function idaDfs(
       console.warn(
         `Pruning state from correct path (above threshold): ${g} + ${h} > ${threshold}\n` +
           `${actionsToString(path)} / ${actionsToString(knownCorrectPath)}\n` +
-          JSON.stringify(heuristic(state, target, requireFinalJump)) +
+          JSON.stringify(
+            heuristic(braneName, state, target, requireFinalJump, burdens),
+          ) +
           "\n" +
           renderState(state),
       );
@@ -86,8 +109,16 @@ export async function idaDfs(
   const nodeDecision = await onNode(state, path, g, h);
   if (nodeDecision === "found") return "found";
 
-  let pruneReason = isPruned(state, target, burdens, numFloorTilesInSolution);
+  // Processing prunings.
+  let pruneReason = isPruned(
+    state,
+    target,
+    burdens,
+    numFloorTilesInSolution,
+    initial,
+  );
   if (pruneReason) {
+    //console.log(pruneReason);
     const amountOfPathFound = (() => {
       for (let i = 0; i < knownCorrectPath.length; i++) {
         if (knownCorrectPath[i] != path[i]) return i;
@@ -107,8 +138,37 @@ export async function idaDfs(
   let min = Infinity;
 
   for (const action of actions) {
+    // Isolated here so it can be used twice.
+    function staffTrims(state: GameState, action: Action = "staff") {
+      return (
+        // EVR and stairs aren't sealed.
+        burdens.endless &&
+        stairsActive(state.player.staffContent, state.board, state.entities) &&
+        // No need to ever place the stairs if we have the EVR. (Exception made if we have more tiles behind the stairs in the queue.)
+        ((action === "staff" &&
+          state.player.staffContent.length === 1 &&
+          state.player.staffContent[0] === "stairs" &&
+          readBoardCouplet(state.board, facedTile(state.player)) === "empty") ||
+          // Obvious optimization that mostly only matters for Cif brane. Always take the stairs if we're empty-handed and have EVR.
+          (actions.includes("staff") &&
+            action !== "staff" &&
+            state.player.staffContent.length === 0 &&
+            readBoardCouplet(state.board, facedTile(state.player)) ===
+              "stairs"))
+      );
+    }
+
+    if (staffTrims(state, action)) {
+      continue;
+    }
+
     const next = applyAction(state, action, burdens);
     if (!next) continue;
+
+    // TEST TEST REMOVE
+    //if ([...visited].length >= 5) {
+    //  console.log(visited);
+    //}
 
     // Loop prevention speeds up searches by about 6x at threshold 20, 4x at threshold 26
     const nextKey = stateKey(next);
@@ -118,9 +178,92 @@ export async function idaDfs(
     }
     visited.add(nextKey);
 
+    // BIG LONG FUNCTIONALLY EQUIVALENT PATHS OPTIMIZATION... STARTO!
+    // Look at each direction we could face. If there is no 'Z' action available for any given direction, the state is equivalent to any other facing direction for which that is true.
+    const directions: [Direction, Direction, Direction, Direction] = [
+      "up",
+      "right",
+      "down",
+      "left",
+    ];
+
+    const directionCoords: [
+      [number, number],
+      [number, number],
+      [number, number],
+      [number, number],
+    ] = [
+      [next.player.row - 1, next.player.col],
+      [next.player.row, next.player.col + 1],
+      [next.player.row + 1, next.player.col],
+      [next.player.row, next.player.col - 1],
+    ];
+
+    function isZInvalid(direction_i: number): boolean {
+      // Speed up: don't duplicate if not needed.
+      if (next!.player.facing === directions[direction_i]!) {
+        if (staffTrims(next!)) {
+          return true;
+        }
+
+        return applyAction(next!, "staff", burdens) === null;
+      }
+      // Alter facing direction
+      else {
+        let nextModifiedFacing = structuredClone(next!);
+        nextModifiedFacing.player.facing! = directions[direction_i]!;
+
+        if (staffTrims(nextModifiedFacing)) {
+          return true;
+        }
+
+        return applyAction(nextModifiedFacing, "staff", burdens) === null;
+      }
+    }
+
+    // Iterate through directions
+    for (let i = 0; i < 4; i++) {
+      let facedFound = false;
+
+      // Is player facing this direction...
+      if (next.player.facing === directions[i]) {
+        // Mark this as true so once we're done with the second loop, we exit the first one for efficiency.
+        facedFound = true;
+        //...and is it marked as Z invalid?
+        if (isZInvalid(i)) {
+          // Iterate through the directions again.
+          for (let i2 = 0; i2 < 4; i2++) {
+            // Skip the one we're already facing.
+            if (i === i2) {
+              continue;
+            }
+
+            // If this direction is Z invalid, increase the counter and log it as visited, since it is equivalent to the direction the player is facing.
+            if (isZInvalid(i2)) {
+              counters.nullEquivalencesLogged++;
+              visited.add(
+                nextKey.replace(
+                  "," + String(directions[i]) + ",",
+                  "," + String(directions[i2]) + ",",
+                ),
+              );
+            }
+          }
+        }
+      }
+
+      // Having found the faced direction, exit the loop.
+      if (facedFound) {
+        break;
+      }
+    }
+    // EQUIVALENT PATHS TRIMS DONE!
+
     path.push(action);
 
     const result = await idaDfs(
+      braneName,
+      initial,
       next,
       g + 1,
       path,
@@ -154,6 +297,7 @@ export async function idaDfs(
  * accurate progress estimates for the main search.
  */
 async function sampleProgressCheckpoints(
+  braneName: string,
   initial: GameState,
   target: Board,
   burdens: Burdens,
@@ -169,9 +313,12 @@ async function sampleProgressCheckpoints(
     nodesExplored: 0,
     loopsPrevented: 0,
     pathsTrimmed: 0,
+    nullEquivalencesLogged: 0,
   };
 
   await idaDfs(
+    braneName,
+    initial,
     initial,
     0,
     [],
@@ -202,6 +349,7 @@ async function sampleProgressCheckpoints(
 }
 
 export async function idaStar({
+  braneName,
   initial,
   target,
   verbose = 0, // TODO: Clean up whether I pass this as variable vs use env variable everywhere
@@ -224,6 +372,7 @@ export async function idaStar({
   const progressSamples =
     showProgress ?
       await sampleProgressCheckpoints(
+        braneName,
         initial,
         target,
         burdens,
@@ -233,14 +382,16 @@ export async function idaStar({
     : undefined;
 
   let threshold =
-    initialThreshold ?? heuristic(initial, target, requireFinalJump).total;
+    initialThreshold ??
+    heuristic(braneName, initial, target, requireFinalJump, burdens).total;
   const counters: DfsCounters = {
     nodesExplored: 0,
     loopsPrevented: 0,
     pathsTrimmed: 0,
+    nullEquivalencesLogged: 0,
   };
   const start = performance.now();
-  // Initialised to 0 so the first log fires immediately rather than waiting 3s.
+  // Initialized to 0 so the first log fires immediately rather than waiting 3s.
   let lastLogTime = 0;
 
   // Per-path visited set — prevents cycles within a single DFS path.
@@ -250,7 +401,11 @@ export async function idaStar({
 
   while (true) {
     const path: Action[] = [];
+
+    // Runs idaDfs and returns the result.
     const result = await idaDfs(
+      braneName,
+      initial,
       initial,
       0,
       path,
@@ -263,6 +418,8 @@ export async function idaStar({
       counters,
       actions,
       knownCorrectPath,
+
+      // Feeds the result of this async function into idaDfs's onNode parameter.
       async (state, path, g, h) => {
         const f = g + h;
 
@@ -279,11 +436,16 @@ export async function idaStar({
             for (let i = 0; i < knownCorrectPath.length; i++) {
               if (knownCorrectPath[i] != path[i]) return i;
             }
+
+            if (!knownCorrectPath) {
+              throw new Error("Unknown knownCorrectPath.");
+            }
+
             return knownCorrectPath.length;
           })();
 
           console.log(
-            `Threshold: ${threshold} | Explored: ${counters.nodesExplored} | ${counters.loopsPrevented} loops prevented | ${counters.pathsTrimmed} paths trimmed | ` +
+            `Threshold: ${threshold} | Explored: ${counters.nodesExplored} | ${counters.loopsPrevented} loops prevented | ${counters.pathsTrimmed} paths trimmed | ${counters.nullEquivalencesLogged} null equivalences logged\n` +
               `${(elapsedMs / 1000).toFixed(0)}s | ${nodesPerSec} nodes/sec\n` +
               `Path: ${g} | f=${f} (${g}g+${h}h) | ${amountOfPathFound} correct: ${actionsToString(
                 path,
@@ -317,10 +479,11 @@ export async function idaStar({
       );
     }
 
-    if (result === "found")
+    if (result === "found") {
       return { path, nodesExplored: counters.nodesExplored, elapsedMs };
-    if (result === Infinity)
+    } else if (result === Infinity) {
       return { path: null, nodesExplored: counters.nodesExplored, elapsedMs };
+    }
 
     threshold = result;
   }

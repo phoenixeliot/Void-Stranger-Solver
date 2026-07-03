@@ -35,7 +35,7 @@ const CONSISTENCY_CASES: {
         "      ",
       ]),
       entities: emptyEntityGrid(),
-      player: { row: 0, col: 4, facing: "right", staffContent: "empty" },
+      player: { row: 0, col: 4, facing: "right", staffContent: [] },
     },
     solutionLength: 1,
     action: "staff",
@@ -70,7 +70,7 @@ const CONSISTENCY_CASES: {
         "      ",
         "     R",
       ]),
-      player: { row: 1, col: 4, facing: "right", staffContent: "empty" },
+      player: { row: 1, col: 4, facing: "right", staffContent: [] },
     },
     solutionLength: 1,
     action: "staff",
@@ -106,7 +106,7 @@ const CONSISTENCY_CASES: {
         "      ",
         "     R",
       ]),
-      player: { row: 1, col: 4, facing: "right", staffContent: "empty" },
+      player: { row: 1, col: 4, facing: "right", staffContent: [] },
     },
     solutionLength: 1,
     action: "staff",
@@ -146,7 +146,7 @@ const CONSISTENCY_CASES: {
         row: 2,
         col: 3,
         facing: "left",
-        staffContent: "floor",
+        staffContent: ["floor"],
         wingsActive: false,
       },
     },
@@ -187,7 +187,7 @@ const CONSISTENCY_CASES: {
         row: 1,
         col: 3,
         facing: "left",
-        staffContent: "empty",
+        staffContent: [],
         wingsActive: false,
       },
     },
@@ -217,7 +217,13 @@ for (const {
     const after = applyAction(before, action, NO_BURDENS);
     assert.ok(after !== null, `Action "${action}" was unexpectedly invalid`);
     const targetBoard = parseBoard(target);
-    const hBefore = heuristic(before, targetBoard, requireFinalJump);
+    const hBefore = heuristic(
+      name.split("/")[0] ?? name,
+      before,
+      targetBoard,
+      requireFinalJump,
+      NO_BURDENS,
+    );
     // console.log(`Heuristic admissibility — ${name}, hBefore: ${hBefore.total}`);
     assert.ok(
       hBefore.total <= solutionLength,
@@ -237,8 +243,8 @@ for (const {
 //     const after = applyAction(before, action);
 //     assert.ok(after !== null, `Action "${action}" was unexpectedly invalid`);
 //     const targetBoard = parseBoard(target);
-//     const hBefore = heuristic(before, targetBoard, requireFinalJump).total;
-//     const hAfter = heuristic(after, targetBoard, requireFinalJump).total;
+//     const hBefore = heuristic(before, targetBoard, requireFinalJump, burdens).total;
+//     const hAfter = heuristic(after, targetBoard, requireFinalJump, burdens).total;
 //     // console.log(
 //     //   `Heuristic consistency — ${name}, hBefore: ${hBefore}, hAfter: ${hAfter}`,
 //     // );
@@ -248,7 +254,7 @@ for (const {
 //         hBefore - hAfter
 //       } after "${action}" — expected ≤ 1. h(before)=${hBefore}, h(after)=${hAfter}\n${JSON.stringify(
 //         {
-//           h: heuristic(before, parseBoard(target), requireFinalJump),
+//           h: heuristic(before, parseBoard(target), requireFinalJump, burdens, burdens),
 //           nextH: heuristic(after, parseBoard(target), requireFinalJump),
 //         },
 //         null,
@@ -274,9 +280,11 @@ test("Heuristic + steps should not exceed target level for all state pairs (admi
       } as GameState;
       const target = parseBoard(targetLevel.board);
       const heuristicValues = heuristic(
+        "Eus",
         state,
         target,
         level.requireFinalJump ?? false,
+        NO_BURDENS,
       );
       const combined = stepsTaken + heuristicValues.total;
 
@@ -312,7 +320,13 @@ test("Heuristic + steps should not exceed target level for all state pairs (admi
         }, transportCost: ${heuristicValues.transportCost}, travelCost: ${
           heuristicValues.travelCost
         }\n${JSON.stringify(
-          heuristic(state, target, level.requireFinalJump ?? false),
+          heuristic(
+            "Eus",
+            state,
+            target,
+            level.requireFinalJump ?? false,
+            NO_BURDENS,
+          ),
           null,
           2,
         )}\n${renderState(state)}`,
@@ -322,22 +336,31 @@ test("Heuristic + steps should not exceed target level for all state pairs (admi
 });
 
 for (const [searchName, pathStr] of Object.entries(KNOWN_CORRECT_PATHS)) {
-  const hasWings = searchName.endsWith(" wings");
-  const coreName =
-    hasWings ? searchName.slice(0, -" wings".length) : searchName;
+  if (pathStr.includes("IMPOSSIBLE")) {
+    continue;
+  }
+
+  const hasWings = searchName.includes(" wings");
+  const hasSword = searchName.includes(" sword");
+  const hasEndless = searchName.includes(" endless");
+  const coreName = searchName
+    .replace(" wings", "")
+    .replace(" sword", "")
+    .replace(" endless", "")
+    .trim();
   const [braneName, brandName] = coreName.split("/");
   const brane = BRANES.find((b) => b.name === braneName);
   const brand = BRANDS.find((b) => b.name === brandName);
   if (!brane || !brand) continue;
 
-  const burdens = { wings: hasWings, sword: false };
+  const burdens = { wings: hasWings, sword: hasSword, endless: hasEndless };
 
   test(`Heuristic admissibility along known path — ${searchName}`, () => {
     const statesOnPath = applyPath(brane, pathStr, burdens);
     for (const [iStr, state] of Object.entries(statesOnPath)) {
       const stepsTaken = Number(iStr);
       const stepsRemaining = pathStr.length - stepsTaken;
-      const h = heuristic(state, brand.board, true);
+      const h = heuristic(braneName!, state, brand.board, true, burdens);
       const nextState = statesOnPath[Number(iStr) + 1];
       assert.ok(
         h.total <= stepsRemaining,
@@ -373,9 +396,11 @@ for (const [searchName, pathStr] of Object.entries(KNOWN_CORRECT_PATHS)) {
         const initial = statesOnPath[startStepI]!;
         const stepsBack = endStepI - startStepI;
         const h = heuristic(
+          braneName!,
           initial,
           target.board,
           endStepI === statesOnPath.length - 1,
+          burdens,
         );
         valuesOnPath.push(h.total);
         await test(`${searchName} step ${startStepI} → step ${endStepI}`, () => {

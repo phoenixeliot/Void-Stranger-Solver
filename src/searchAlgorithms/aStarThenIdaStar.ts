@@ -30,6 +30,7 @@ import {
  * — i.e. the most promising entry points for the IDA* tail — come first.
  */
 function buildFrontier(
+  braneName: string,
   initial: GameState,
   frontierDepth: number,
   target: Board,
@@ -43,7 +44,13 @@ function buildFrontier(
   const frontier: SearchNode[] = [];
   const earlyGoals: SearchNode[] = [];
 
-  const initialH = heuristic(initial, target, requireFinalJump).total;
+  const initialH = heuristic(
+    braneName,
+    initial,
+    target,
+    requireFinalJump,
+    burdens,
+  ).total;
   open.push({
     state: initial,
     gCost: 0,
@@ -71,7 +78,9 @@ function buildFrontier(
     }
 
     // Dead end — skip entirely.
-    if (isPruned(current.state, target, burdens, numFloorTilesInSolution))
+    if (
+      isPruned(current.state, target, burdens, numFloorTilesInSolution, initial)
+    )
       continue;
 
     for (const action of actions) {
@@ -79,7 +88,13 @@ function buildFrontier(
       if (!next) continue;
       if (closed.has(stateKey(next))) continue;
 
-      const nextH = heuristic(next, target, requireFinalJump).total;
+      const nextH = heuristic(
+        braneName,
+        next,
+        target,
+        requireFinalJump,
+        burdens,
+      ).total;
       open.push({
         state: next,
         gCost: current.gCost + 1,
@@ -149,6 +164,7 @@ function buildPrefixVisited(
  *   to IDA*.  Larger values give better opening-move quality but use more memory.
  */
 export async function aStarThenIdaStar({
+  braneName,
   initial,
   target,
   verbose = 0,
@@ -167,6 +183,7 @@ export async function aStarThenIdaStar({
     nodesExplored: 0,
     loopsPrevented: 0,
     pathsTrimmed: 0,
+    nullEquivalencesLogged: 0,
   };
   const start = performance.now();
   let lastLogTime = 0;
@@ -176,6 +193,7 @@ export async function aStarThenIdaStar({
   if (verbose) console.log(`Building A* frontier to depth ${frontierDepth}...`);
 
   const { frontier, earlyGoals } = buildFrontier(
+    braneName,
     initial,
     frontierDepth,
     target,
@@ -215,7 +233,8 @@ export async function aStarThenIdaStar({
   // ── Phase 2: IDA* tails with iterative threshold ────────────────────────
 
   let threshold =
-    initialThreshold ?? heuristic(initial, target, requireFinalJump).total;
+    initialThreshold ??
+    heuristic(braneName, initial, target, requireFinalJump, burdens).total;
 
   while (true) {
     let minNextThreshold = Infinity;
@@ -244,6 +263,8 @@ export async function aStarThenIdaStar({
       // idaDfs backtracks cleanly on failure, leaving prefixVisited unchanged.
       const subPath: Action[] = [];
       const result = await idaDfs(
+        braneName,
+        initial,
         node.state,
         0,
         subPath,

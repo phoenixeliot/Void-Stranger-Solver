@@ -1,6 +1,6 @@
 import { heuristic } from "./heuristic";
-import { countFloorTiles } from "./search";
-import { NO_BURDENS } from "./types";
+import { countFloorTiles, floorInStaff } from "./search";
+import { NO_BURDENS, PlayerState } from "./types";
 import type {
   Action,
   Board,
@@ -16,14 +16,20 @@ import { actionsToString } from "./utils";
 
 export const ACTIONS: Action[] = ["left", "up", "right", "down", "staff"];
 
-const DELTAS: Record<Direction, { dr: number; dc: number }> = {
+// Given a PlayerState, returns the index of the tile the player is facing. THIS CAN RETURN OOB COORDINATES!
+export function facedTile(player: PlayerState): [number, number] {
+  const { dr, dc } = DELTAS[player.facing];
+  return [player.row + dr, player.col + dc];
+}
+
+export const DELTAS: Record<Direction, { dr: number; dc: number }> = {
   up: { dr: -1, dc: 0 },
   down: { dr: 1, dc: 0 },
   left: { dr: 0, dc: -1 },
   right: { dr: 0, dc: 1 },
 };
 
-function inBounds(r: number, c: number): boolean {
+export function inBounds(r: number, c: number): boolean {
   return r >= 0 && r < 6 && c >= 0 && c < 6;
 }
 
@@ -58,18 +64,27 @@ function setEntity(
   );
 }
 
-function stairsActive(board: Board, grid: EntityGrid): boolean {
+export function stairsActive(
+  staffContent: StaffContent[],
+  board: Board,
+  grid: EntityGrid,
+): boolean {
+  if (staffContent.includes("button")) {
+    return false;
+  }
+
   for (let i = 0; i < 6; i++) {
     for (let i2 = 0; i2 < 6; i2++) {
-      // Check if the cell is a button AND has a non-player entity on it.
+      // Check if the cell is a button and doesn't have an entity on it.
       if (
         getCell(board, i, i2) === "button" &&
-        getEntity(grid, i, i2) !== "empty"
+        getEntity(grid, i, i2) === "empty"
       ) {
         return false;
       }
     }
   }
+
   return true;
 }
 
@@ -95,7 +110,7 @@ function checkFallen(board: Board, entities: EntityGrid): EntityGrid {
 }
 
 function disperseTraps(board: Board, row: number, column: number): Board {
-  let triggered_tiles: number[][] = [[row, column]];
+  let triggered_tiles: [number, number][] = [[row, column]];
   let done_anything: boolean = true;
 
   // Iterate through each triggered_tile's neighbors and add them to the list if they're also active traps. Repeatedly do this until nothing changes.
@@ -103,9 +118,9 @@ function disperseTraps(board: Board, row: number, column: number): Board {
     done_anything = false;
 
     const array2 = triggered_tiles.slice();
-    for (let coord of array2) {
-      let r: number = coord[0]!;
-      let c: number = coord[1]!;
+    for (const coord of array2) {
+      const r: number = coord[0];
+      const c: number = coord[1];
 
       const triggeredTileCoordStrings = triggered_tiles.map((pair) =>
         pair.toString(),
@@ -147,8 +162,8 @@ function disperseTraps(board: Board, row: number, column: number): Board {
 
   // Found them all, now remove them.
   let newBoard = board;
-  for (let coord of triggered_tiles) {
-    newBoard = setCell(newBoard, coord[0]!, coord[1]!, "empty");
+  for (const coord of triggered_tiles) {
+    newBoard = setCell(newBoard, coord[0], coord[1], "empty");
   }
 
   // All done!
@@ -158,40 +173,483 @@ function disperseTraps(board: Board, row: number, column: number): Board {
 // Triggers the first watcher it encounters. If it doesn't encounter one, does nothing.
 function triggerWatcher(entities: EntityGrid): EntityGrid {
   // Deep copy the array so we don't mutate the original
-  let newEntities = entities.map((row) => row.map((v) => v)) as EntityGrid;
   for (let i = 0; i < 6; i++) {
     for (let i2 = 0; i2 < 6; i2++) {
       if (entities[i]![i2]! === "watcher_inactive") {
-        newEntities[i]![i2]! = "watcher_active";
-        return newEntities;
+        return setEntity(entities, i, i2, "watcher_active");
       }
     }
   }
-  return newEntities;
+  return entities;
 }
 
-// Handling for monster statues.
-function anyMonsters(entities: EntityGrid): boolean {
+// Monster detection.
+export function anyHands(ent: EntityGrid): boolean {
   for (let i = 0; i < 6; i++) {
-    for (let i2 = 0; i < 6; i++) {
-      if (getEntity(entities, i, i2) == "hand") {
+    for (let i2 = 0; i2 < 6; i2++) {
+      if (getEntity(ent, i, i2) === "hand") {
         return true;
       }
     }
   }
   return false;
 }
-function disperseMonsterStatues(entities: EntityGrid): EntityGrid {
-  if (!anyMonsters(entities)) {
+
+export function anyBeavers(ent: EntityGrid): boolean {
+  for (let i = 0; i < 6; i++) {
+    for (let i2 = 0; i2 < 6; i2++) {
+      if (getEntity(ent, i, i2) === "beaver") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function anyMimics(ent: EntityGrid): boolean {
+  for (let i = 0; i < 6; i++) {
+    for (let i2 = 0; i2 < 6; i2++) {
+      if (getEntity(ent, i, i2) === "mimic") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function anyBeaversOrMimics(ent: EntityGrid): boolean {
+  for (let i = 0; i < 6; i++) {
+    for (let i2 = 0; i2 < 6; i2++) {
+      if (
+        getEntity(ent, i, i2) === "beaver" ||
+        getEntity(ent, i, i2) === "mimic"
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function anyMovers(ent: EntityGrid): boolean {
+  for (let i = 0; i < 6; i++) {
+    for (let i2 = 0; i2 < 6; i2++) {
+      if (
+        getEntity(ent, i, i2) === "beaver" ||
+        getEntity(ent, i, i2) === "mimic" ||
+        getEntity(ent, i, i2) === "maggot_up" ||
+        getEntity(ent, i, i2) === "maggot_down" ||
+        getEntity(ent, i, i2) === "leech_left" ||
+        getEntity(ent, i, i2) === "leech_right"
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+export function anyEntities(ent: EntityGrid): boolean {
+  for (let i = 0; i < 6; i++) {
+    for (let i2 = 0; i2 < 6; i2++) {
+      if (getEntity(ent, i, i2) !== "empty") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Removes any and all monster statues if there are no monsters.
+export function disperseMonsterStatues(entities: EntityGrid): EntityGrid {
+  let newEntities = entities.map((row) => row.map((v) => v)) as EntityGrid;
+  if (!anyHands(entities) && !anyMovers(entities)) {
     for (let i = 0; i < 6; i++) {
-      for (let i2 = 0; i < 6; i++) {
-        if (getEntity(entities, i, i2) == "monster_statue") {
-          return setEntity(entities, i, i2, "empty");
+      for (let i2 = 0; i2 < 6; i2++) {
+        if (getEntity(entities, i, i2) === "monster_statue") {
+          newEntities[i]![i2]! = "empty";
         }
       }
     }
   }
-  return entities;
+  return newEntities;
+}
+
+// Big function for the entity-moving step.
+function moveEntities(
+  board: Board,
+  entities: EntityGrid,
+  activeWings: boolean,
+  hasWings: boolean,
+  player_row: number,
+  player_col: number,
+  action: Action,
+): [Board, EntityGrid, boolean] | string {
+  // Search loop: find the monsters. In the case of mimic and beaver we can skip the second part and just immediately return since they're singlets.
+  const maggots_and_leeches = [
+    "maggot_up",
+    "maggot_down",
+    "leech_left",
+    "leech_right",
+  ];
+  let to_move: [number, number][] = [];
+
+  for (let i = 0; i < 6; i++) {
+    for (let i2 = 0; i2 < 6; i2++) {
+      // Move maggot & leech
+      if (maggots_and_leeches.includes(getEntity(entities, i, i2))) {
+        to_move.push([i, i2]);
+      }
+      // Move mimic
+      else if (action !== "staff" && getEntity(entities, i, i2) === "mimic") {
+        // Mimic facing direction doesn't matter since they can't interact. //
+        const { dr, dc } = DELTAS[action];
+        const mimic_target_r = i + dr;
+        const mimic_target_c = i2 - dc; // this is where the flipping happens!
+
+        // Check if the mimic is hitting OOB, wall, or chest. Because facing direction doesn't matter, this is a no-op for the mimic.
+        if (
+          !inBounds(mimic_target_r, mimic_target_c) ||
+          getCell(board, mimic_target_r, mimic_target_c) === "wall" ||
+          getEntity(entities, mimic_target_r, mimic_target_c) === "chest"
+        ) {
+          return [board, entities, activeWings];
+        }
+        // Hit the player, DIE.
+        else if (
+          player_row === mimic_target_r &&
+          player_col === mimic_target_c
+        ) {
+          // Throw player down the pit.
+          if (getCell(board, player_row, player_col) === "empty") {
+            return [board, entities, false];
+          } else {
+            return "death"; // death!
+          }
+        }
+        // Pushing a rock.
+        else if (
+          getEntity(entities, mimic_target_r, mimic_target_c) === "rock" ||
+          getEntity(entities, mimic_target_r, mimic_target_c) ===
+            "watcher_inactive" ||
+          getEntity(entities, mimic_target_r, mimic_target_c) ===
+            "watcher_active" ||
+          getEntity(entities, mimic_target_r, mimic_target_c) ===
+            "monster_statue"
+        ) {
+          const rockDestRow = i + dr * 2;
+          const rockDestCol = i2 - dc * 2;
+
+          const startingEntity = getEntity(
+            entities,
+            mimic_target_r,
+            mimic_target_r,
+          );
+
+          // If any of these things are true, we push but nothing happens, equivalent to hitting a wall.
+          if (
+            !inBounds(rockDestRow, rockDestCol) ||
+            getCell(board, rockDestRow, rockDestCol) === "wall" ||
+            getEntity(entities, rockDestRow, rockDestCol) === "rock" ||
+            getEntity(entities, rockDestRow, rockDestCol) ===
+              "watcher_inactive" ||
+            getEntity(entities, rockDestRow, rockDestCol) ===
+              "watcher_active" ||
+            getEntity(entities, rockDestRow, rockDestCol) === "chest" ||
+            getEntity(entities, rockDestRow, rockDestCol) === "monster_statue"
+          ) {
+            return [board, entities, activeWings];
+          }
+          // Break any glass the rock was pushed off of.
+          let newBoard =
+            getCell(board, mimic_target_r, mimic_target_r) === "glass" ?
+              setCell(board, mimic_target_r, mimic_target_r, "empty")
+            : board;
+          let newEntities = entities;
+
+          // Pushing into void.
+          if (getCell(newBoard, rockDestRow, rockDestCol) === "empty") {
+            newEntities = setEntity(
+              setEntity(newEntities, mimic_target_r, mimic_target_r, "empty"),
+              rockDestRow,
+              rockDestCol,
+              "empty",
+            );
+          }
+          // UNNECESSARY TRAP TILE CODE
+          // Normal move
+          else {
+            newEntities = setEntity(
+              setEntity(newEntities, mimic_target_r, mimic_target_r, "empty"),
+              rockDestRow,
+              rockDestCol,
+              startingEntity,
+            );
+          }
+
+          return [newBoard, newEntities, activeWings];
+        }
+        // Pushing something else??
+        else if (
+          getEntity(entities, mimic_target_r, mimic_target_c) !== "empty"
+        ) {
+          throw new Error(
+            "unrecognized entity: " +
+              String(getEntity(entities, mimic_target_r, mimic_target_c)),
+          );
+        }
+        // Standard movement.
+        else {
+          let newEntities = entities;
+
+          // Break glass.
+          let newBoard =
+            getCell(board, i, i2) === "glass" ?
+              setCell(board, i, i2, "empty")
+            : board;
+
+          // Moving into empty space.
+          const movingToCell = getCell(board, mimic_target_r, mimic_target_c);
+          if (movingToCell === "empty") {
+            newEntities = setEntity(newEntities, i, i2, "empty");
+          }
+          // Moving onto inactive trap
+          else if (movingToCell === "trap_inactive") {
+            newEntities = setEntity(
+              setEntity(newEntities, i, i2, "empty"),
+              mimic_target_r,
+              mimic_target_c,
+              "mimic",
+            );
+            newBoard = setCell(
+              newBoard,
+              mimic_target_r,
+              mimic_target_c,
+              "trap_active",
+            );
+          }
+          // Moving onto ACTIVE trap
+          else if (movingToCell === "trap_active") {
+            newEntities = setEntity(newEntities, i, i2, "empty");
+            newBoard = disperseTraps(newBoard, mimic_target_r, mimic_target_c);
+          }
+          // Normal Move
+          else {
+            newEntities = setEntity(
+              setEntity(newEntities, i, i2, "empty"),
+              mimic_target_r,
+              mimic_target_c,
+              "mimic",
+            );
+          }
+
+          return [newBoard, newEntities, activeWings];
+        }
+      }
+    }
+  }
+
+  // Move leeches and maggots
+  if (to_move.length < 1) {
+    const blockers = [
+      "rock",
+      "watcher_inactive",
+      "watcher_active",
+      "chest",
+      "maggot_up",
+      "maggot_down",
+      "leech_left",
+      "leech_right",
+    ];
+    const unmoveables = ["empty", "wall"];
+
+    let newEntityPositions: [number, number, Entity][] = [];
+    let playerHit = false;
+
+    for (const coord of to_move) {
+      if (getEntity(entities, coord[0], coord[1]) === "maggot_up") {
+        // Player is there
+        if (player_col === coord[0] - 1 && player_row === coord[1]) {
+          playerHit = true;
+        }
+
+        // Blocked
+        if (
+          !inBounds(coord[0] - 1, coord[1]) ||
+          blockers.includes(getEntity(entities, coord[0] - 1, coord[1])) ||
+          unmoveables.includes(getCell(board, coord[0] - 1, coord[1]))
+        ) {
+          entities = setEntity(entities, coord[0], coord[1], "maggot_down");
+        }
+        // Continue
+        else {
+          board =
+            getCell(board, coord[0], coord[1]) === "glass" ?
+              setCell(board, coord[0], coord[1], "empty")
+            : board;
+          entities = setEntity(entities, coord[0], coord[1], "empty");
+          newEntityPositions.push([coord[0] - 1, coord[1], "maggot_up"]);
+        }
+      } else if (getEntity(entities, coord[0], coord[1]) === "maggot_down") {
+        // Player is there
+        if (player_col === coord[0] + 1 && player_row === coord[1]) {
+          playerHit = true;
+        }
+
+        // Blocked
+        if (
+          !inBounds(coord[0] + 1, coord[1]) ||
+          blockers.includes(getEntity(entities, coord[0] + 1, coord[1])) ||
+          unmoveables.includes(getCell(board, coord[0] + 1, coord[1]))
+        ) {
+          entities = setEntity(entities, coord[0], coord[1], "maggot_up");
+        }
+        // Continue
+        else {
+          board =
+            getCell(board, coord[0], coord[1]) === "glass" ?
+              setCell(board, coord[0], coord[1], "empty")
+            : board;
+          entities = setEntity(entities, coord[0], coord[1], "empty");
+          newEntityPositions.push([coord[0] + 1, coord[1], "maggot_down"]);
+        }
+      } else if (getEntity(entities, coord[0], coord[1]) === "leech_left") {
+        // Player is there
+        if (player_col === coord[0] && player_row - 1 === coord[1]) {
+          playerHit = true;
+        }
+
+        // Blocked
+        if (
+          !inBounds(coord[0], coord[1] - 1) ||
+          blockers.includes(getEntity(entities, coord[0], coord[1] - 1)) ||
+          unmoveables.includes(getCell(board, coord[0], coord[1] - 1))
+        ) {
+          entities = setEntity(entities, coord[0], coord[1], "leech_right");
+        }
+        // Continue
+        else {
+          board =
+            getCell(board, coord[0], coord[1]) === "glass" ?
+              setCell(board, coord[0], coord[1], "empty")
+            : board;
+          entities = setEntity(entities, coord[0], coord[1], "empty");
+          newEntityPositions.push([coord[0], coord[1] - 1, "leech_left"]);
+        }
+      } else if (getEntity(entities, coord[0], coord[1]) === "leech_right") {
+        // Player is there
+        if (player_col === coord[0] && player_row + 1 === coord[1]) {
+          playerHit = true;
+        }
+
+        // Blocked
+        if (
+          !inBounds(coord[0], coord[1] + 1) ||
+          blockers.includes(getEntity(entities, coord[0], coord[1] + 1)) ||
+          unmoveables.includes(getCell(board, coord[0], coord[1] + 1))
+        ) {
+          entities = setEntity(entities, coord[0], coord[1], "leech_left");
+        }
+        // Continue
+        else {
+          board =
+            getCell(board, coord[0], coord[1]) === "glass" ?
+              setCell(board, coord[0], coord[1], "empty")
+            : board;
+          entities = setEntity(entities, coord[0], coord[1], "empty");
+          newEntityPositions.push([coord[0], coord[1] + 1, "leech_right"]);
+        }
+      }
+    }
+
+    // Begin moving
+    if (newEntityPositions.length > 2) {
+      throw new Error("moveEntity found more than two movers");
+    } else if (newEntityPositions.length > 0) {
+      if (newEntityPositions.length === 2) {
+        // Check for collision; if so we've already removed them from the board, return nothing.
+        if (
+          newEntityPositions[0]![0]! === newEntityPositions[1]![0]! &&
+          newEntityPositions[0]![1]! === newEntityPositions[1]![1]!
+        ) {
+          return [board, entities, activeWings];
+        }
+        // Otherwise, place in accordance to newEntityPositions
+        else {
+          let delayedTrapDisperse: [number, number][] = [];
+          // Place
+          for (const entityPosition of newEntityPositions) {
+            // Onto an inactive trap; activate the trap
+            if (
+              getCell(board, entityPosition[0], entityPosition[1]) ===
+              "trap_inactive"
+            ) {
+              board = setCell(
+                board,
+                entityPosition[0],
+                entityPosition[1],
+                "trap_active",
+              );
+            }
+            // Onto an active trap; mark a dispersal needing to be triggered.
+            else if (
+              getCell(board, entityPosition[0], entityPosition[1]) ===
+              "trap_active"
+            ) {
+              delayedTrapDisperse.push([entityPosition[0], entityPosition[1]]);
+            }
+            entities = setEntity(
+              entities,
+              entityPosition[0],
+              entityPosition[1],
+              entityPosition[2],
+            );
+          }
+
+          // Disperse traps.
+          for (const trapSource of delayedTrapDisperse) {
+            // Check to make sure previous pass didn't eliminate it already.
+            if (
+              getCell(board, trapSource[0], trapSource[1]) === "trap_active"
+            ) {
+              board = disperseTraps(board, trapSource[0], trapSource[1]);
+            }
+          }
+
+          // Drop floaters
+          entities = checkFallen(board, entities);
+
+          // Throw player down the pit.
+          if (playerHit) {
+            if (getCell(board, player_row, player_col) === "empty") {
+              return [board, entities, false];
+            } else {
+              return "death"; // death!
+            }
+          }
+          // PLayer got floor taken out from underneath them.
+          else if (getCell(board, player_row, player_col) === "empty") {
+            // unsure how this case is handled in-game
+            if (activeWings) {
+              throw new Error("unaccounted situation occurred in moveEntities");
+            }
+            // wings activate
+            else if (hasWings) {
+              return [board, entities, true];
+            }
+            // no wings to activate
+            else {
+              return [board, entities, false];
+            }
+          }
+
+          return [board, entities, activeWings];
+        }
+      }
+    }
+  }
+
+  return [board, entities, activeWings];
 }
 
 export function applyAction(
@@ -202,8 +660,6 @@ export function applyAction(
   const { board, entities, player } = state;
   const { row, col, facing, staffContent } = player;
   const wingsActive = burdens.wings && (player.wingsActive ?? false);
-  //const swordActive = hasSword && (player.swordActive ?? false);
-  //const endlessActive = hasEndless && (player.endlessActive ?? false);
 
   // Movement!
   if (action !== "staff") {
@@ -217,9 +673,39 @@ export function applyAction(
       getCell(board, newRow, newCol) === "wall" ||
       getEntity(entities, newRow, newCol) === "chest"
     ) {
-      if (facing === action && wingsActive === false) {
+      // Move entities
+      if (anyMovers(entities)) {
+        const statesAfterEntities = moveEntities(
+          board,
+          entities,
+          wingsActive,
+          burdens.wings,
+          row,
+          col,
+          action,
+        );
+
+        if (typeof statesAfterEntities === "string") {
+          return null;
+        }
+
+        return {
+          board: statesAfterEntities[0]!,
+          entities: statesAfterEntities[1]!,
+          player: {
+            row,
+            col,
+            facing: action,
+            staffContent,
+            wingsActive: false, // Bumping always disables
+          },
+        };
+      }
+      // Return null if unchanged.
+      else if (facing === action && wingsActive === false) {
         return null;
       }
+
       return {
         board,
         entities,
@@ -235,8 +721,16 @@ export function applyAction(
 
     const dest = getCell(board, newRow, newCol);
 
-    // Hands... hands!
-    if (getEntity(entities, newRow, newCol) === "hand") {
+    // Moving into an enemy
+    if (
+      getEntity(entities, newRow, newCol) === "beaver" ||
+      getEntity(entities, newRow, newCol) === "mimic" ||
+      getEntity(entities, newRow, newCol) === "hand" ||
+      getEntity(entities, newRow, newCol) === "maggot_up" ||
+      getEntity(entities, newRow, newCol) === "leech_left" ||
+      getEntity(entities, newRow, newCol) === "maggot_down" ||
+      getEntity(entities, newRow, newCol) === "leech_right"
+    ) {
       return null;
     }
 
@@ -246,7 +740,7 @@ export function applyAction(
       dest === "stairs"
     ) {
       // ...are impassable.
-      if (stairsActive(board, entities)) {
+      if (stairsActive(staffContent, board, entities)) {
         return null;
       }
       // ...are walkable
@@ -256,6 +750,35 @@ export function applyAction(
           getCell(board, row, col) === "glass" ?
             setCell(board, row, col, "empty")
           : board;
+
+        // Move entities
+        if (anyMovers(entities)) {
+          const statesAfterEntities = moveEntities(
+            newBoard,
+            entities,
+            wingsActive,
+            burdens.wings,
+            row,
+            col,
+            action,
+          );
+
+          if (typeof statesAfterEntities === "string") {
+            return null;
+          }
+
+          return {
+            board: statesAfterEntities[0]!,
+            entities: statesAfterEntities[1]!,
+            player: {
+              row,
+              col,
+              facing: action,
+              staffContent,
+              wingsActive: statesAfterEntities[2]!,
+            },
+          };
+        }
 
         return {
           board: newBoard,
@@ -280,6 +803,7 @@ export function applyAction(
     ) {
       const rockDestRow = newRow + dr;
       const rockDestCol = newCol + dc;
+      const startingEntity = getEntity(entities, newRow, newCol);
 
       // If any of these things are true, we push but nothing happens, equivalent to hitting a wall.
       if (
@@ -291,7 +815,35 @@ export function applyAction(
         getEntity(entities, rockDestRow, rockDestCol) === "chest" ||
         getEntity(entities, rockDestRow, rockDestCol) === "monster_statue"
       ) {
-        //console.log("f-f-f-failure");
+        // Move entities
+        if (anyMovers(entities)) {
+          const statesAfterEntities = moveEntities(
+            board,
+            entities,
+            wingsActive,
+            burdens.wings,
+            row,
+            col,
+            action,
+          );
+
+          if (typeof statesAfterEntities === "string") {
+            return null;
+          }
+
+          return {
+            board: statesAfterEntities[0]!,
+            entities: statesAfterEntities[1]!,
+            player: {
+              row,
+              col,
+              facing: action,
+              staffContent,
+              wingsActive: false, // Bumping always disables
+            },
+          };
+        }
+
         if (facing === action && wingsActive === false) {
           return null;
         } else {
@@ -340,7 +892,7 @@ export function applyAction(
           setEntity(entities, newRow, newCol, "empty"),
           rockDestRow,
           rockDestCol,
-          getEntity(entities, newRow, newCol),
+          startingEntity,
         );
       }
       // Pushing onto an ACTIVE trap.
@@ -353,7 +905,7 @@ export function applyAction(
           setEntity(entities, newRow, newCol, "empty"),
           rockDestRow,
           rockDestCol,
-          getEntity(entities, newRow, newCol),
+          startingEntity,
         );
 
         // ...and then trigger all fallings.
@@ -365,8 +917,37 @@ export function applyAction(
           setEntity(entities, newRow, newCol, "empty"),
           rockDestRow,
           rockDestCol,
-          getEntity(entities, newRow, newCol),
+          startingEntity,
         );
+      }
+
+      // Move entities
+      if (anyMovers(newEntities)) {
+        const statesAfterEntities = moveEntities(
+          newBoard,
+          disperseMonsterStatues(newEntities),
+          wingsActive,
+          burdens.wings,
+          row,
+          col,
+          action,
+        );
+
+        if (typeof statesAfterEntities === "string") {
+          return null;
+        }
+
+        return {
+          board: statesAfterEntities[0]!,
+          entities: disperseMonsterStatues(statesAfterEntities[1]!),
+          player: {
+            row,
+            col,
+            facing: action,
+            staffContent,
+            wingsActive: false, // always false after a push
+          },
+        };
       }
 
       return {
@@ -405,6 +986,35 @@ export function applyAction(
 
         // Account for any fallen entities.
         newEntities = checkFallen(newBoard, newEntities);
+      }
+
+      // Move entities
+      if (anyMovers(newEntities)) {
+        const statesAfterEntities = moveEntities(
+          newBoard,
+          newEntities,
+          wingsActive,
+          burdens.wings,
+          row,
+          col,
+          action,
+        );
+
+        if (typeof statesAfterEntities === "string") {
+          return null;
+        }
+
+        return {
+          board: statesAfterEntities[0]!,
+          entities: disperseMonsterStatues(statesAfterEntities[1]!),
+          player: {
+            row: newRow,
+            col: newCol,
+            facing: action,
+            staffContent,
+            wingsActive: false,
+          },
+        };
       }
 
       // Another void tile — fall to your doom. Origin was empty, so no glass to break.
@@ -447,6 +1057,35 @@ export function applyAction(
       const newWingsActive =
         burdens.wings && getCell(newBoard, newRow, newCol) === "empty";
 
+      // Move entities
+      if (anyMovers(newEntities)) {
+        const statesAfterEntities = moveEntities(
+          newBoard,
+          newEntities,
+          newWingsActive,
+          burdens.wings,
+          row,
+          col,
+          action,
+        );
+
+        if (typeof statesAfterEntities === "string") {
+          return null;
+        }
+
+        return {
+          board: statesAfterEntities[0]!,
+          entities: disperseMonsterStatues(statesAfterEntities[1]!),
+          player: {
+            row: newRow,
+            col: newCol,
+            facing: action,
+            staffContent,
+            wingsActive: statesAfterEntities[2]!,
+          },
+        };
+      }
+
       return {
         board: newBoard,
         entities: disperseMonsterStatues(newEntities),
@@ -459,8 +1098,9 @@ export function applyAction(
         },
       };
     }
-  } else {
-    // ── Staff action — player does not move; wingsActive passes through unchanged ─
+  }
+  // ── Staff action — player does not move; wingsActive passes through unchanged ─
+  else {
     const { dr, dc } = DELTAS[facing];
     const fr = row + dr;
     const fc = col + dc;
@@ -468,7 +1108,7 @@ export function applyAction(
 
     const front = getCell(board, fr, fc);
 
-    // Chest and upwards?
+    // Chest and upwards? (no need for enemy movement, chests do not overlap with them)
     if (facing === "up" && getEntity(entities, fr, fc) === "chest") {
       // Turn chest into rock and face downward.
       return {
@@ -483,13 +1123,90 @@ export function applyAction(
         },
       };
     }
-    // Check for other entities in front cell.
+    // Check for other entities in front cell. Either kill with sword or return null
     else if (getEntity(entities, fr, fc) !== "empty") {
-      return null;
-    } else {
+      // She's got a sword!
+      if (
+        burdens.sword &&
+        [
+          "hand",
+          "beaver",
+          "mimic",
+          "maggot_up",
+          "maggot_down",
+          "leech_left",
+          "leech_right",
+        ].includes(getEntity(entities, fr, fc))
+      ) {
+        // If hand on glass, remove glass.
+        const newBoard =
+          (
+            getEntity(entities, fr, fc) === "hand" &&
+            getCell(board, fr, fc) === "glass"
+          ) ?
+            setCell(board, fr, fc, "empty")
+          : board;
+
+        // Delete entity.
+        const newEntities = setEntity(entities, fr, fc, "empty");
+
+        // Move entities
+        if (anyMovers(entities)) {
+          const statesAfterEntities = moveEntities(
+            newBoard,
+            newEntities,
+            wingsActive,
+            burdens.wings,
+            player.row,
+            player.col,
+            action,
+          );
+
+          if (typeof statesAfterEntities === "string") {
+            return null;
+          }
+
+          return {
+            board: statesAfterEntities[0],
+            entities: disperseMonsterStatues(statesAfterEntities[1]),
+            player: {
+              row,
+              col,
+              facing,
+              staffContent,
+              wingsActive: statesAfterEntities[2],
+            },
+          };
+        }
+        // No entities to move
+        else {
+          return {
+            board: newBoard,
+            entities: newEntities,
+            player: {
+              row,
+              col,
+              facing,
+              staffContent,
+              wingsActive: player.wingsActive ?? false,
+            },
+          };
+        }
+      } else {
+        return null;
+      }
+    }
+    // Using the Void Rod
+    else {
+      // Create newEntities by trigger watchers. In the case that we hit the ELSE block below, doing this won't matter at all since we return null anyways.
       const newEntities = triggerWatcher(entities);
 
-      if (staffContent === "empty" && front !== "empty" && front !== "wall") {
+      function staffCanTake(staffContent: StaffContent[]): boolean {
+        return burdens.endless || staffContent.length === 0;
+      }
+
+      // Taking
+      if (staffCanTake(staffContent) && front !== "empty" && front !== "wall") {
         return {
           board: setCell(board, fr, fc, "empty"),
           entities: disperseMonsterStatues(newEntities),
@@ -497,23 +1214,27 @@ export function applyAction(
             row,
             col,
             facing,
-            staffContent: front as StaffContent,
+            staffContent: [...staffContent, front],
             wingsActive: player.wingsActive ?? false,
           },
         };
-      } else if (staffContent !== "empty" && front === "empty") {
+      }
+      // Placing
+      else if (staffContent.length > 0 && front === "empty") {
         return {
-          board: setCell(board, fr, fc, staffContent as Cell),
+          board: setCell(board, fr, fc, staffContent[staffContent.length - 1]!),
           entities: disperseMonsterStatues(newEntities),
           player: {
             row,
             col,
             facing,
-            staffContent: "empty",
+            staffContent: staffContent.slice(0, staffContent.length - 1),
             wingsActive: player.wingsActive ?? false,
           },
         };
-      } else {
+      }
+      // Unable to use Void Rod
+      else {
         return null;
       }
     }
@@ -525,22 +1246,32 @@ export function applyAction(
 
 export function stateKey(state: GameState): string {
   // We wrap these in IIFEs so the profiler names each part individually
-  function cellChar(c: Cell) {
-    return (
-      c === "empty" ? " "
-      : c === "floor" ? "#"
-      : c === "glass" ? "G"
-      : c === "wall" ? "W"
-      : c === "button" ? "B"
-      : c === "stairs" ? "S"
-      : c === "trap_active" ? "A"
-      : c === "trap_inactive" ? "T"
-      : "?"
-    );
-  }
   const boardStr = (function getBoardStr() {
     let str = "";
-    state.board.forEach((row) => row.forEach((c) => (str += cellChar(c))));
+    state.board.forEach((row) =>
+      row.forEach(
+        (c) =>
+          (str +=
+            c === "empty" ? " "
+            : c === "floor" ? "#"
+            : c === "glass" ? "G"
+            : c === "wall" ? "W"
+            : c === "button" ? "B"
+            : c === "stairs" ? "S"
+            : c === "trap_active" ? "A"
+            : c === "trap_inactive" ? "T"
+            : "?"),
+      ),
+    );
+
+    // Unsure about RLE here.
+    for (let i = 36; i > 2; i--) {
+      str = str
+        .replace("#".repeat(i), "@" + String(i))
+        .replace(" ".repeat(i), "_" + String(i))
+        .replace("G".repeat(i), "g" + String(i));
+    }
+
     return str;
   })();
   const entityStr = (function getEntityStr() {
@@ -560,6 +1291,12 @@ export function stateKey(state: GameState): string {
             : " "),
       ),
     );
+
+    // RLE for storage space? RLE empties with just a number, don't RLE anything else.
+    for (let i = 36; i > 1; i--) {
+      str = str.replace(" ".repeat(i), String(i));
+    }
+
     return str;
   })();
   const { row, col, facing, staffContent, wingsActive } =
@@ -567,19 +1304,27 @@ export function stateKey(state: GameState): string {
       return state.player;
     })();
   const staffStr = (function getStaffStr() {
-    return (
-      staffContent === "empty" ? "e"
-      : staffContent === "floor" ? "f"
-      : staffContent === "glass" ? "g"
-      : staffContent === "button" ? "b"
-      : staffContent === "trap_inactive" ? "t"
-      : staffContent === "trap_active" ? "a"
-      : "s"
-    );
+    if (staffContent.length === 0) {
+      return "e";
+    }
+
+    let str = "";
+    for (const x of staffContent) {
+      str +=
+        x === "floor" ? "f"
+        : x === "glass" ? "g"
+        : x === "button" ? "b"
+        : x === "trap_inactive" ? "t"
+        : x === "trap_active" ? "a"
+        : "s";
+    }
+    return str;
   })();
   const wingsStr = wingsActive ? "W" : "0";
-  //const swordStr = swordActive ? "S" : "0";
-  //const endlessStr = endlessActive ? "E" : "0";
+
+  //console.log("Characters saved by RLE: "+String(36-boardStr.length) + " & " + String(36-entityStr.length));
+
+  // "so burdens aren't kept as part of the state bc they don't change in a run, so we don't need to store a lot of copies of them"
   return (function combineString() {
     return `${boardStr}|${entityStr}|${row},${col},${facing},${staffStr},${wingsStr}`;
   })();
@@ -589,7 +1334,7 @@ export function stateKey(state: GameState): string {
 // requires "solid tile present" or "empty", not a specific solid type.
 export function cellMatchesTarget(cell: Cell, target: Cell): boolean {
   if (cell === "stairs") {
-    return cell === "stairs";
+    return false;
   } else if (target === "empty") {
     return cell === "empty";
   } else {
@@ -604,9 +1349,10 @@ export function isGoal(
   requireFinalJump = true,
 ): boolean {
   if (requireFinalJump) {
-    if (state.player.staffContent !== "stairs") return false;
+    if (!state.player.staffContent.includes("stairs")) return false;
     if (getCell(state.board, state.player.row, state.player.col) !== "empty")
       return false;
+    if (state.player.wingsActive) return false;
   }
   // console.debug(
   //   state.board.map((row, r) =>
@@ -639,7 +1385,7 @@ export function replayPath(
     }
     console.log(
       `Step ${i + 1}: ${action} | h: ${
-        heuristic(state, target, requireFinalJump).total
+        heuristic("UNKNOWN", state, target, requireFinalJump, burdens).total
       }\n${renderState(state)}\n`,
     );
     if (isGoal(state, target, requireFinalJump)) {
@@ -649,38 +1395,47 @@ export function replayPath(
   }
 }
 
-function renderCellFloor(cell: Cell) {
-  let floorChar = "  ";
+function renderStaffContent(staffContent: StaffContent[]): string {
+  if (staffContent.length === 0) {
+    return "";
+  }
+
+  let str = "";
+  for (const x of staffContent) {
+    str += renderCellFloor(x as string);
+  }
+  return str;
+}
+
+function renderCellFloor(cell: string): string {
   switch (cell) {
     case "floor":
-      floorChar = "██";
-      break;
+      return "██";
     case "glass":
-      floorChar = "░░";
-      break;
+      return "░░";
     case "stairs":
-      floorChar = "S ";
-      break;
+      return "S ";
     case "wall":
-      floorChar = "▓▓";
-      break;
+      return "▓▓";
     case "button":
-      floorChar = "█B";
-      break;
+      return "█B";
     case "trap_inactive":
-      floorChar = "◖◗";
-      break;
+      return "◖◗";
     case "trap_active":
-      floorChar = "<>";
-      break;
+      return "<>";
     case "empty":
-      floorChar = "  ";
-      break;
+      return "  ";
     default:
-      floorChar = "??";
-      break;
+      return cell;
   }
-  return floorChar;
+}
+
+export function renderStates(states: GameState[]): string {
+  let str = "";
+  for (const state of states) {
+    str += renderState(state);
+  }
+  return str;
 }
 
 export function renderState(state: GameState, requiredTiles?: number): string {
@@ -724,25 +1479,44 @@ export function renderState(state: GameState, requiredTiles?: number): string {
       overlayChar = "C";
     } else if (entities[r]?.[c] === "monster_statue") {
       overlayChar = "~";
+    } else if (entities[r]?.[c] === "maggot_up") {
+      overlayChar = "A";
+    } else if (entities[r]?.[c] === "leech_left") {
+      overlayChar = "L";
+    } else if (entities[r]?.[c] === "maggot_down") {
+      overlayChar = "Ɐ";
+    } else if (entities[r]?.[c] === "leech_right") {
+      overlayChar = "Ꞁ";
     }
-    let floorChar = renderCellFloor(cell);
+    const floorChar = renderCellFloor(cell);
     return overlayChar ? overlayChar + floorChar.slice(1) : floorChar;
   };
+
+  for (const row of board) {
+    if (row.length !== 6) {
+      throw new Error(
+        "Invalid length row of " +
+          String(row.length) +
+          " printing: " +
+          String(row),
+      );
+    }
+  }
+
   const rows = board.map(
     (row, r) => "│" + row.map((cell, c) => cellChar(cell, r, c)).join("") + "│",
   );
-  const numFloorTilesRemaining =
-    countFloorTiles(board) +
-    (["floor", "glass"].includes(state.player.staffContent) ? 1 : 0);
+  const numFloorTilesRemaining = countFloorTiles(board);
+  const numFloorTilesRemainingAll = numFloorTilesRemaining + floorInStaff(state.player.staffContent);
   const wingsIndicator = state.player.wingsActive ? " 🦋" : "";
   //const swordIndicator = state.player.swordActive ? " 🗡️" : "";
   //const endlessIndicator = state.player.endlessActive ? " 🪄" : "";
   return (
-    `${numFloorTilesRemaining} floor tiles remain${
+    `${numFloorTilesRemaining} (${numFloorTilesRemainingAll} including held) floor tiles remain${
       requiredTiles ? ` out of a necessary ${requiredTiles}` : ""
     }\n` +
     ["┌────────────┐", ...rows, "└────────────┘"].join("\n") +
-    `\nstaff: [${renderCellFloor(
+    `\nstaff: [${renderStaffContent(
       state.player.staffContent,
     )}]${wingsIndicator}\n`
   );

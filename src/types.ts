@@ -4,9 +4,14 @@ export type Direction = "up" | "down" | "left" | "right";
 export interface Burdens {
   wings: boolean;
   sword: boolean;
+  endless: boolean;
 }
 
-export const NO_BURDENS: Burdens = { wings: false, sword: false };
+export const NO_BURDENS: Burdens = {
+  wings: false,
+  sword: false,
+  endless: false,
+};
 export type Action = "up" | "down" | "left" | "right" | "staff";
 
 // "empty" = void, "floor" = walkable floor, "glass" = walkable but breaks when stepped off, "stairs" = the stairs, "wall" = impassable and immovable
@@ -33,12 +38,15 @@ export type Entity =
   | "watcher_inactive"
   | "watcher_active"
   | "chest"
-  | "monster_statue";
+  | "monster_statue"
+  | "maggot_up"
+  | "leech_left"
+  | "maggot_down"
+  | "leech_right";
 export type EntityGrid = Entity[][];
 
-// Staff can hold nothing, a floor, a glass, or the stairs
+// Staff-valid tiles
 export type StaffContent =
-  | "empty"
   | "floor"
   | "glass"
   | "stairs"
@@ -50,7 +58,7 @@ export interface PlayerState {
   row: number;
   col: number;
   facing: Direction;
-  staffContent: StaffContent;
+  staffContent: StaffContent[];
   /** True while the player is gliding over the void using the wings burden. */
   wingsActive?: boolean;
 }

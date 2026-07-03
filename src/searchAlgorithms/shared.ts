@@ -1,5 +1,15 @@
-import { NO_BURDENS } from "../types";
-import type { Action, Board, Burdens, EntityGrid, GameState } from "../types";
+import { NO_BURDENS, StaffContent } from "../types";
+import type {
+  Action,
+  Board,
+  Burdens,
+  EntityGrid,
+  GameState,
+  Cell,
+  Entity,
+} from "../types";
+import { renderState, inBounds } from "../gameState";
+import { gameStateContainsBreakables, countFloorTilesInState } from "../utils";
 
 const verbose = Number(process.env.VERBOSE);
 
@@ -7,6 +17,7 @@ export interface DfsCounters {
   nodesExplored: number;
   loopsPrevented: number;
   pathsTrimmed: number;
+  nullEquivalencesLogged: number;
 }
 
 export interface SearchResult {
@@ -16,6 +27,7 @@ export interface SearchResult {
 }
 
 export interface SearchOptions {
+  braneName: string;
   initial: GameState;
   target: Board;
   verbose?: number;
@@ -57,6 +69,15 @@ export function countFloorTiles(board: Board): number {
     );
 }
 
+export function countUndisappearing(board: Board): number {
+  return board
+    .flat()
+    .reduce(
+      (n, cell) => n + (["floor", "wall", "button"].includes(cell) ? 1 : 0),
+      0,
+    );
+}
+
 // Returns true if all watchers are triggered.
 export function allWatchersTriggeredQuestion(entities: EntityGrid): boolean {
   let found_any: boolean = false;
@@ -74,25 +95,61 @@ export function allWatchersTriggeredQuestion(entities: EntityGrid): boolean {
 
 // Returns true if all but one watchers are triggered.
 export function staffBanned(entities: EntityGrid): boolean {
-  let found_inactive: boolean = false;
-  let found_active: boolean = false;
+  return false;
+  let found_inactive: number = 0;
   for (let i = 0; i < 6; i++) {
     for (let i2 = 0; i2 < 6; i2++) {
       if (entities[i]![i2]! === "watcher_inactive") {
-        if (!found_inactive) {
-          found_inactive = true;
-          return false; // HACK: Fix this whole function if this works
-        }
-        // Second inactive found, we're safe.
-        else {
+        found_inactive++;
+
+        // 2 inactive statues means we have at least one safe usage.
+        if (found_inactive >= 2) {
           return false;
         }
-      } else if (!found_active && entities[i]![i2]! === "watcher_active") {
-        found_active = true;
       }
     }
   }
-  return found_active;
+  return found_inactive === 1;
+}
+
+// Counts floor tiles in staff
+export function floorInStaff(heldTiles: StaffContent[]): number {
+  let counter = 0;
+  for (const x of heldTiles) {
+    if (
+      x === "floor" ||
+      x === "glass" ||
+      x === "button" ||
+      x === "trap_inactive" ||
+      x === "trap_active"
+    ) {
+      counter++;
+    }
+  }
+  return counter;
+}
+
+// Utility functions for stair stuff.
+export function readBoardCouplet(
+  board: Board,
+  couplet: [number, number],
+): Cell {
+  if (!inBounds(couplet[0], couplet[1])) {
+    return "empty";
+  }
+
+  return board[couplet[0]]![couplet[1]]!;
+}
+
+export function readEntityCouplet(
+  entities: EntityGrid,
+  couplet: [number, number],
+): Entity {
+  if (!inBounds(couplet[0], couplet[1])) {
+    return "empty";
+  }
+
+  return entities[couplet[0]]![couplet[1]]!;
 }
 
 /**
@@ -111,8 +168,21 @@ export function isPruned(
   target: Board,
   burdens: Burdens,
   numFloorTilesInSolution: number,
+  initial: GameState,
 ): boolean | string {
   const { row, col } = state.player;
+
+  // Impossible setup.
+  if (
+    !burdens.endless &&
+    countUndisappearing(state.board) > numFloorTilesInSolution
+  ) {
+    if (verbose >= 3)
+      console.log(
+        "INF: impossible to ever win, too many tiles and no endless void rod",
+      );
+    return "impossible to ever win, too many tiles and no endless void rod";
+  }
 
   // All Watcher statues triggered.
   if (allWatchersTriggeredQuestion(state.entities)) {
@@ -124,7 +194,7 @@ export function isPruned(
   // player doesn't have wings (can't do the watcher-strike into pit strat).
   if (
     staffBanned(state.entities) &&
-    state.player.staffContent !== "stairs" &&
+    !state.player.staffContent.includes("stairs") &&
     !burdens.wings
   ) {
     if (verbose >= 3)
@@ -140,16 +210,26 @@ export function isPruned(
     return "you have fallen (prematurely)";
   }
 
+  // Pre-emptively check for a floor tile discrepancy in branes that lack any breakable tiles. Triggering this means something in our code is wrong, not that a pruning needs to occur.
+  const currentTotalFloorTiles = countFloorTilesInState(state);
+  if (
+    !gameStateContainsBreakables(initial) &&
+    countFloorTilesInState(initial) !== currentTotalFloorTiles
+  ) {
+    return (
+      "Floor tile discrepancy in brane with no breakable tiles: " +
+      String(countFloorTilesInState(initial)) +
+      " " +
+      String(currentTotalFloorTiles) +
+      "\n" +
+      renderState(initial) +
+      "\n" +
+      renderState(state)
+    );
+  }
+
   // Not enough floor tiles remaining to satisfy the target.
-  const floorInStaff =
-    (
-      ["floor", "glass", "button", "trap_inactive", "trap_active"].includes(
-        state.player.staffContent,
-      )
-    ) ?
-      1
-    : 0;
-  if (countFloorTiles(state.board) + floorInStaff < numFloorTilesInSolution) {
+  if (currentTotalFloorTiles < numFloorTilesInSolution) {
     return "not enough tiles remain";
   }
 
@@ -161,14 +241,17 @@ export function isPruned(
     [5, 0],
     [5, 5],
   ]) {
-    const r = coord[0]!;
-    const c = coord[1]!;
+    const r: number = coord[0]!;
+    const c: number = coord[1]!;
+
+    const covered_tile: Cell = state.board[r]![c]!;
+    const covering_entity: Entity = state.entities[r]![c]!;
 
     if (
-      state.entities[r]![c]! === "rock" ||
-      state.entities[r]![c]! === "watcher_inactive" ||
-      state.entities[r]![c]! === "watcher_active" ||
-      state.entities[r]![c]! === "chest"
+      covering_entity === "rock" ||
+      covering_entity === "watcher_inactive" ||
+      covering_entity === "watcher_active" ||
+      covering_entity === "chest"
     ) {
       // The cornered entity is covering stairs.
       if (state.board[r]![c]! === "stairs") {
@@ -180,7 +263,7 @@ export function isPruned(
         console.log(
           "INF: cornered rock covering excess tile: " + String(coord),
         );
-        return "There's a rock covering a that that must be removed in a corner";
+        return "There's a rock covering a tile that must be removed in a corner";
       }
     }
   }
@@ -206,16 +289,16 @@ export function isPruned(
 
     if (blockers.includes(state.entities[r]![c]!)) {
       const r2: number =
-        i == 0 || i == 2 ? 0
-        : i == 4 || i == 6 ? 0
-        : i == 8 || i == 10 ? 5
-        : i == 12 || i == 2 ? 5
+        i === 0 || i === 2 ? 0
+        : i === 4 || i === 6 ? 0
+        : i === 8 || i === 10 ? 5
+        : i === 12 || i === 14 ? 5
         : 256;
       const c2: number =
-        i == 0 || i == 2 ? 0
-        : i == 4 || i == 6 ? 5
-        : i == 8 || i == 10 ? 0
-        : i == 12 || i == 2 ? 5
+        i === 0 || i === 2 ? 0
+        : i === 4 || i === 6 ? 5
+        : i === 8 || i === 10 ? 0
+        : i === 12 || i === 14 ? 5
         : 256;
 
       if (blockers.includes(state.entities[r2]![c2]!)) {

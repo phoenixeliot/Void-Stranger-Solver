@@ -38,6 +38,8 @@ import {
  *   number   — the minimum f-value seen in this subtree (Infinity = dead end).
  */
 async function rbfsDfs(
+  braneName: string,
+  initial: GameState,
   state: GameState,
   g: number,
   f: number,
@@ -61,7 +63,13 @@ async function rbfsDfs(
   if (f > fLimit) return f;
 
   // Compute h separately for accurate logging (f may have been boosted above g+h).
-  const h = heuristic(state, target, requireFinalJump).total;
+  const h = heuristic(
+    braneName,
+    state,
+    target,
+    requireFinalJump,
+    burdens,
+  ).total;
 
   counters.nodesExplored++;
 
@@ -74,7 +82,7 @@ async function rbfsDfs(
   const nodeDecision = await onNode(state, path, g, h);
   if (nodeDecision === "found") return "found";
 
-  if (isPruned(state, target, burdens, numFloorTilesInSolution))
+  if (isPruned(state, target, burdens, numFloorTilesInSolution, initial))
     return Infinity;
 
   // Build the successor list, computing each child's f up-front so we can sort.
@@ -91,7 +99,13 @@ async function rbfsDfs(
       continue;
     }
 
-    const nextH = heuristic(next, target, requireFinalJump).total;
+    const nextH = heuristic(
+      braneName,
+      next,
+      target,
+      requireFinalJump,
+      burdens,
+    ).total;
     // Ensure f is non-decreasing along any path (required for RBFS correctness
     // when the heuristic is consistent, which it should be here).
     // TODO: But our heuristic isn't quite consistent; is that a problem?
@@ -119,6 +133,8 @@ async function rbfsDfs(
     path.push(best.action);
 
     const result = await rbfsDfs(
+      braneName,
+      initial,
       best.state,
       g + 1,
       best.f,
@@ -154,6 +170,7 @@ async function rbfsDfs(
  * IDA* uses.  Pass `algorithm: "idaStar"` if you need threshold control.
  */
 export async function rbfs({
+  braneName,
   initial,
   target,
   verbose = 0,
@@ -170,6 +187,7 @@ export async function rbfs({
     nodesExplored: 0,
     loopsPrevented: 0,
     pathsTrimmed: 0,
+    nullEquivalencesLogged: 0,
   };
   const start = performance.now();
   // Initialised to 0 so the first log fires immediately rather than waiting 3s.
@@ -179,9 +197,17 @@ export async function rbfs({
   visited.add(stateKey(initial));
 
   const path: Action[] = [];
-  const initialH = heuristic(initial, target, requireFinalJump).total;
+  const initialH = heuristic(
+    braneName,
+    initial,
+    target,
+    requireFinalJump,
+    burdens,
+  ).total;
 
   const result = await rbfsDfs(
+    braneName,
+    initial,
     initial,
     0,
     initialH,

@@ -31,14 +31,14 @@ const DIRECTION_DELTA: Record<Direction, [number, number]> = {
 
 const ALL_FACINGS: Direction[] = ["up", "down", "left", "right"];
 
-const ALL_STAFF_CONTENTS: StaffContent[] = [
-  "empty",
-  "floor",
-  "glass",
-  "stairs",
-  "button",
-  "trap_inactive",
-  "trap_active",
+const ALL_STAFF_CONTENTS: StaffContent[][] = [
+  [] as StaffContent[],
+  ["floor"] as StaffContent[],
+  ["glass"] as StaffContent[],
+  ["stairs"] as StaffContent[],
+  ["button"] as StaffContent[],
+  ["trap_inactive"] as StaffContent[],
+  ["trap_active"] as StaffContent[],
 ];
 
 // Entities whose positions can change during gameplay.
@@ -133,6 +133,8 @@ function generateGoalStates(
   target: Board,
   initial: GameState,
   requireFinalJump: boolean,
+  hasWings: boolean,
+  endless: boolean,
 ): GameState[] {
   // Valid cells for entity placement: always non-empty, non-wall.
   const validEntityCells: Array<[number, number]> = [];
@@ -145,19 +147,55 @@ function generateGoalStates(
 
   // Valid cells and staff contents for the player depend on the win condition.
   let validPlayerCells: Array<[number, number]>;
-  let validStaffContents: StaffContent[];
-  if (requireFinalJump) {
-    // Player must be in the void (empty cell) holding stairs.
+  let validStaffContents: StaffContent[][];
+  // Endless Void Rod; not yet implemented.
+  if (endless) {
+    throw new Error("Not yet implemented.");
+  }
+  // Player must be in the void (empty cell) holding stairs.
+  else if (requireFinalJump) {
     validPlayerCells = [];
     for (let r = 0; r < 6; r++) {
       for (let c = 0; c < 6; c++) {
         if (target[r]![c]! === "empty") validPlayerCells.push([r, c]);
       }
     }
-    validStaffContents = ["stairs"];
-  } else {
-    validPlayerCells = [...validEntityCells];
-    validStaffContents = ALL_STAFF_CONTENTS;
+    validStaffContents = [["stairs"]] as StaffContent[][];
+  }
+  // Don't require final jump and subtract tiles that can't originate from the initial state.
+  else {
+    // Any non-wall is valid to stand on.
+    if (hasWings) {
+      validPlayerCells = [];
+      for (let r = 0; r < 6; r++) {
+        for (let c = 0; c < 6; c++) {
+          if (target[r]![c]! !== "wall") validPlayerCells.push([r, c]);
+        }
+      }
+    }
+    // Any solid tile is valid to stand on.
+    else {
+      validPlayerCells = [...validEntityCells];
+    }
+
+    // Any tile that could possibly originate from the initial state is a valid tile to be holding.
+    let tilesInOrigin: StaffContent[] = [];
+    let vscHolder: StaffContent[][] = [];
+
+    for (const row of initial.board) {
+      for (const col_i in row) {
+        if (
+          row[col_i] !== "empty" &&
+          row[col_i] !== "wall" &&
+          !tilesInOrigin.includes(row[col_i]!)
+        ) {
+          tilesInOrigin.push(row[col_i]!);
+          vscHolder.push([row[col_i]!]);
+        }
+      }
+    }
+
+    validStaffContents = vscHolder;
   }
 
   // Use validEntityCells (not validPlayerCells) for entity placement so
@@ -513,11 +551,11 @@ function generatePredecessors(
       const frontCell = board[fr]![fc]!;
 
       // Reverse of "pick up": staffContent = X, front is empty → pred has empty staff, front = X.
-      if (staffContent !== "empty" && frontCell === "empty") {
+      if (staffContent.length > 0 && frontCell === "empty") {
         const candidate: GameState = {
-          board: setBoardCell(board, fr, fc, staffContent as Cell),
+          board: setBoardCell(board, fr, fc, staffContent[-1] as Cell),
           entities,
-          player: { ...player, staffContent: "empty" },
+          player: { ...player, staffContent: [] },
         };
         const result = applyAction(candidate, "staff", burdens);
         if (result && stateKey(result) === targetKey)
@@ -527,14 +565,17 @@ function generatePredecessors(
       // Reverse of "place": staffContent = empty, front = X → pred has staff = X, front empty.
       // TODO: does not handle the chest→rock staff conversion (rare edge case).
       if (
-        staffContent === "empty" &&
+        (staffContent.length === 0 || burdens.endless) &&
         frontCell !== "empty" &&
         frontCell !== "wall"
       ) {
         const candidate: GameState = {
           board: setBoardCell(board, fr, fc, "empty"),
           entities,
-          player: { ...player, staffContent: frontCell as StaffContent },
+          player: {
+            ...player,
+            staffContent: [...staffContent, frontCell as StaffContent],
+          },
         };
         const result = applyAction(candidate, "staff", burdens);
         if (result && stateKey(result) === targetKey)
@@ -611,6 +652,7 @@ function generatePredecessors(
  * the existing forward applyAction oracle.
  */
 export async function bidirectionalAStar({
+  braneName,
   initial,
   target,
   verbose = 0,
@@ -630,7 +672,8 @@ export async function bidirectionalAStar({
   fwdOpen.push({
     state: initial,
     gCost: 0,
-    hCost: heuristic(initial, target, requireFinalJump).total,
+    hCost: heuristic(braneName, initial, target, requireFinalJump, burdens)
+      .total,
     action: null,
     parent: null,
   });
@@ -639,7 +682,13 @@ export async function bidirectionalAStar({
   const bwdOpen = new MinHeap();
   const bwdClosed = new Map<string, SearchNode>();
 
-  const goalStates = generateGoalStates(target, initial, requireFinalJump);
+  const goalStates = generateGoalStates(
+    target,
+    initial,
+    requireFinalJump,
+    burdens.wings,
+    burdens.endless,
+  );
 
   if (verbose) {
     console.log(`Backward search: ${goalStates.length} initial goal states`);
@@ -667,7 +716,8 @@ export async function bidirectionalAStar({
     bwdOpen.push({
       state: goalState,
       gCost: 0,
-      hCost: heuristic(goalState, initial.board, false).total,
+      hCost: heuristic(braneName, goalState, initial.board, false, burdens)
+        .total,
       action: null,
       parent: null,
     });
@@ -731,7 +781,15 @@ export async function bidirectionalAStar({
         break;
       }
 
-      if (isPruned(current.state, target, burdens, numFloorTilesInSolution))
+      if (
+        isPruned(
+          current.state,
+          target,
+          burdens,
+          numFloorTilesInSolution,
+          initial,
+        )
+      )
         continue;
 
       for (const action of actions) {
@@ -742,7 +800,8 @@ export async function bidirectionalAStar({
         fwdOpen.push({
           state: next,
           gCost: current.gCost + 1,
-          hCost: heuristic(next, target, requireFinalJump).total,
+          hCost: heuristic(braneName, next, target, requireFinalJump, burdens)
+            .total,
           action,
           parent: current,
         });
@@ -780,7 +839,13 @@ export async function bidirectionalAStar({
         bwdOpen.push({
           state: predecessor,
           gCost: current.gCost + 1,
-          hCost: heuristic(predecessor, initial.board, false).total,
+          hCost: heuristic(
+            braneName,
+            predecessor,
+            initial.board,
+            false,
+            burdens,
+          ).total,
           action,
           parent: current,
         });

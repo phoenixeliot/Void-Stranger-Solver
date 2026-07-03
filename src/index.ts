@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import { applyAction, renderState, replayPath } from "./gameState";
 import { BRANES, BRANDS, KNOWN_CORRECT_PATHS } from "./levels";
 import { search } from "./search";
+import { heuristic } from "./heuristic";
 import {
   actionsToString,
   emptyEntityGrid,
@@ -19,12 +20,16 @@ const { values } = parseArgs({
     brane: { type: "string", short: "e" },
     brand: { type: "string", short: "d" },
     wings: { type: "boolean" },
+    sword: { type: "boolean" },
+    endless: { type: "boolean" },
     initialThreshold: { type: "string" },
     cheatFirstNSteps: { type: "string" },
     verbose: { type: "string", short: "v" },
     slow: { type: "boolean", short: "s" },
     algorithm: { type: "string", short: "a" },
     frontierDepth: { type: "string" },
+    naiveDifference: { type: "boolean" },
+    heuristicRank: { type: "boolean" },
   },
 });
 
@@ -37,7 +42,9 @@ Options:
   -h, --help                      Show this help message
   -e, --brane <name>              Brane (level) to solve
   -d, --brand <name>              Brand to carve
-      --wings                     Enable wings mechanic
+      --wings                     Enable Void Wings
+      --sword                     Enable Void Sword
+      --endless                   Enable Endless Void Rod
   -v, --verbose <level>           Verbosity level: 1 = log search progress, 2 = replay solution
   -s, --slow                      Add 100ms delay per node during search
       --initialThreshold <n>      Override initial IDA* cost threshold
@@ -56,14 +63,20 @@ Board encoding: " " empty  "#" floor  "G" glass  "S" stairs  "W" wall  "B" butto
   process.exit(0);
 }
 
-const rawLevel = BRANES.find((l) => l.name === values.brane);
+const rawLevel =
+  values.heuristicRank ?
+    BRANES.find((l) => true)
+  : BRANES.find((l) => l.name === values.brane);
 
 if (!rawLevel) {
   console.error(`Unknown brane: "${values.brane}"`);
   process.exit(1);
 }
 
-const rawBrand = BRANDS.find((l) => l.name === values.brand);
+const rawBrand =
+  values.heuristicRank ?
+    BRANDS.find((l) => true)
+  : BRANDS.find((l) => l.name === values.brand);
 
 if (!rawBrand) {
   console.error(`Unknown brand: "${values.brand}"`);
@@ -80,9 +93,12 @@ const TARGET_BOARD: Board = rawBrand.board;
 const initialThreshold =
   values.initialThreshold ? Number(values.initialThreshold) : undefined;
 
-const scenarioName = `${values.brane}/${values.brand}${
-  values.wings ? " wings" : ""
-}`;
+const pacifistBranes = ["Add", "Eus", "Mon", "Lev", "Cif"];
+const holdTrueSword =
+  values.sword && values.brane && pacifistBranes.includes(values.brane) ?
+    false
+  : values.sword;
+const scenarioName = `${values.brane}/${values.brand}${values.wings ? " wings" : ""}${holdTrueSword ? " sword" : ""}${values.endless ? " endless" : ""}`;
 const knownCorrectPath = (KNOWN_CORRECT_PATHS[scenarioName] || "")
   .split("")
   .map((l) => {
@@ -95,7 +111,83 @@ const knownCorrectPath = (KNOWN_CORRECT_PATHS[scenarioName] || "")
     }[l] as Action;
   });
 
+import { naiveBoardDifference } from "./heuristic";
 async function main() {
+  // Testing.
+  if (values.heuristicRank) {
+    let ndSet: [string, number][] = [];
+
+    const burdenSets = [
+      { wings: false, sword: false, endless: false },
+      { wings: false, sword: false, endless: true },
+      { wings: false, sword: true, endless: false },
+      { wings: true, sword: false, endless: false },
+      { wings: false, sword: true, endless: true },
+      { wings: true, sword: false, endless: true },
+      { wings: true, sword: true, endless: false },
+      { wings: true, sword: true, endless: true },
+    ];
+    for (const burdenSet of burdenSets) {
+      for (const brane of BRANES) {
+        // Skip unnecessary swords.
+        if (burdenSet.sword && pacifistBranes.includes(brane.name)) {
+          continue;
+        }
+
+        // Add heuristic to list.
+        for (const brand of BRANDS) {
+          ndSet.push([
+            brane.name +
+              "/" +
+              brand.name +
+              `${burdenSet.wings ? " wings" : ""}${burdenSet.sword ? " sword" : ""}${burdenSet.endless ? " endless" : ""}`,
+
+            heuristic(
+              brane.name,
+              {
+                board: brane.board,
+                entities: brane.entities,
+                player: brane.player,
+              },
+              brand.board,
+              true,
+              {
+                wings: burdenSet.wings,
+                sword: burdenSet.sword,
+                endless: burdenSet.endless,
+              },
+            ).total,
+          ]);
+        }
+      }
+    }
+
+    ndSet.sort((a, b) => a[1] - b[1]);
+
+    console.log("Naive difference ranking:", ndSet);
+    process.exit(1);
+  }
+  if (values.naiveDifference) {
+    console.log(naiveBoardDifference(INITIAL_STATE.board, TARGET_BOARD));
+    process.exit(1);
+  }
+
+  // Disable sword if we're in an enemy-less brane.
+  if (values.sword && values.brane && pacifistBranes.includes(values.brane)) {
+    console.log("Sword has no function in a brane with no enemies; disabling.");
+    values.sword = false;
+  }
+
+  // Impossible setup.
+  if (
+    KNOWN_CORRECT_PATHS[scenarioName] === "IMPOSSIBLE" ||
+    KNOWN_CORRECT_PATHS[`${values.brane}/${values.brand} universal`] ===
+      "IMPOSSIBLE"
+  ) {
+    console.error(`Scenario marked as impossible.`);
+    process.exit(1);
+  }
+
   // Advance the initial state by applying the first N steps of the known
   // correct path, so the search can skip ahead past already-solved prefixes.
   const cheatN = values.cheatFirstNSteps ? Number(values.cheatFirstNSteps) : 0;
@@ -119,7 +211,8 @@ async function main() {
       const action = knownCorrectPath[i]!;
       const next = applyAction(searchState, action, {
         wings: values.wings ?? false,
-        sword: false,
+        sword: values.sword ?? false,
+        endless: values.endless ?? false,
       });
       if (!next) {
         console.error(
@@ -140,8 +233,10 @@ async function main() {
   console.log(
     `Searching for solution with ${values.algorithm}... ${scenarioName}, known path is ${KNOWN_CORRECT_PATHS[scenarioName]}`,
   );
+
   const start = performance.now();
   const { path, nodesExplored } = await search({
+    braneName: values.brane ?? "UNKNOWN",
     initial: searchState,
     target: TARGET_BOARD,
     verbose: Number(values.verbose),
@@ -149,7 +244,11 @@ async function main() {
     requireFinalJump: true,
     initialThreshold,
     knownCorrectPath: knownCorrectPath.slice(cheatN),
-    burdens: { wings: values.wings ?? false, sword: false },
+    burdens: {
+      wings: values.wings ?? false,
+      sword: values.sword ?? false,
+      endless: values.endless ?? false,
+    },
     algorithm: values.algorithm as
       | "idaStar"
       | "rbfs"
@@ -175,7 +274,8 @@ async function main() {
   if (values.verbose)
     replayPath(INITIAL_STATE, fullPath, TARGET_BOARD, {
       wings: values.wings ?? false,
-      sword: false,
+      sword: values.sword ?? false,
+      endless: values.endless ?? false,
     });
 
   console.log(`Solution found in ${fullPath.length} steps (${perf}):`);
@@ -185,11 +285,14 @@ async function main() {
       `New path is better than previous known best of ${knownCorrectPath.length}!!`,
     );
 
-  if (values.wings) {
-    console.log(values.brane + "/" + values.brand + " with wings");
-  } else {
-    console.log(values.brane + "/" + values.brand);
-  }
+  console.log(
+    values.brane +
+      "/" +
+      values.brand +
+      (values.wings ? " wings" : "") +
+      (values.sword ? " sword" : "") +
+      (values.endless ? " endless" : ""),
+  );
 }
 
 main();

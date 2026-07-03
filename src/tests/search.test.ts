@@ -38,10 +38,13 @@ export function boardToStrings(board: Board): string[] {
 }
 
 type TestLevel = Omit<RawLevel, "name"> & {
+  braneName?: string;
   name?: string;
   solutionLength?: number;
   requireFinalJump?: boolean;
   hasWings?: boolean;
+  hasSword?: boolean;
+  hasEndless?: boolean;
 };
 
 async function runSearchTest(t: TestContext, level: TestLevel) {
@@ -53,17 +56,26 @@ async function runSearchTest(t: TestContext, level: TestLevel) {
   const target = level.target;
   const requireFinalJump = level.requireFinalJump ?? true;
   const { path } = await search({
+    braneName: level.braneName ?? "UNKNOWN",
     initial,
     target,
     requireFinalJump,
-    burdens: { wings: level.hasWings ?? false, sword: false },
+    burdens: {
+      wings: level.hasWings ?? false,
+      sword: level.hasSword ?? false,
+      endless: level.hasEndless ?? false,
+    },
   });
   if (process.env.VERBOSE && path)
     replayPath(
       initial,
       path,
       target,
-      { wings: level.hasWings ?? false, sword: false },
+      {
+        wings: level.hasWings ?? false,
+        sword: level.hasSword ?? false,
+        endless: level.hasEndless ?? false,
+      },
       requireFinalJump,
     );
   assert.ok(path !== null, "No solution found");
@@ -77,12 +89,22 @@ async function runSearchTest(t: TestContext, level: TestLevel) {
 
   // Check heuristic admissibility at every step along the found path,
   // both forwards (from the start) and backwards (from the end).
-  const burdens = { wings: level.hasWings ?? false, sword: false };
+  const burdens = {
+    wings: level.hasWings ?? false,
+    sword: level.hasSword ?? false,
+    endless: level.hasEndless ?? false,
+  };
   const statesOnPath = applyPath(initial, actionsToString(path), burdens);
   // Forward: state at index i has i steps taken, path.length - i remaining.
   for (let i = 0; i < statesOnPath.length; i++) {
     const stepsRemaining = path.length - i;
-    const h = heuristic(statesOnPath[i]!, target, requireFinalJump);
+    const h = heuristic(
+      level.braneName ?? "UNKNOWN",
+      statesOnPath[i]!,
+      target,
+      requireFinalJump,
+      burdens,
+    );
     assert.ok(
       h.total <= stepsRemaining,
       `Forward step ${i}/${path.length}: h=${h.total} > ${stepsRemaining} steps remaining. ` +
@@ -92,7 +114,13 @@ async function runSearchTest(t: TestContext, level: TestLevel) {
   // Backward: same states, iterated from the end to make failure messages clearer.
   for (let i = statesOnPath.length - 1; i >= 0; i--) {
     const stepsRemaining = path.length - i;
-    const h = heuristic(statesOnPath[i]!, target, requireFinalJump);
+    const h = heuristic(
+      level.braneName ?? "UNKNOWN",
+      statesOnPath[i]!,
+      target,
+      requireFinalJump,
+      burdens,
+    );
     assert.ok(
       h.total <= stepsRemaining,
       `Backward step ${i}/${path.length}: h=${h.total} > ${stepsRemaining} steps remaining. ` +
@@ -110,17 +138,26 @@ async function assertSearchFailure(t: TestContext, level: TestLevel) {
   const target = level.target;
   const requireFinalJump = level.requireFinalJump ?? true;
   const { path } = await search({
+    braneName: level.braneName ?? "UNKNOWN",
     initial,
     target,
     requireFinalJump,
-    burdens: { wings: level.hasWings ?? false, sword: false },
+    burdens: {
+      wings: level.hasWings ?? false,
+      sword: level.hasSword ?? false,
+      endless: level.hasEndless ?? false,
+    },
   });
   if (process.env.VERBOSE && path)
     replayPath(
       initial,
       path,
       target,
-      { wings: level.hasWings ?? false, sword: false },
+      {
+        wings: level.hasWings ?? false,
+        sword: level.hasSword ?? false,
+        endless: level.hasEndless ?? false,
+      },
       requireFinalJump,
     );
   assert.equal(path, null, "Solution was found, but should not have been");
@@ -138,7 +175,7 @@ test("Solves Add's brand", async (t) => {
         " ##   ",
         "#    #",
       ]),
-      player: { row: 3, col: 2, facing: "down", staffContent: "empty" },
+      player: { row: 3, col: 2, facing: "down", staffContent: [] },
     },
     // prettier-ignore
     target: parseBoard([
@@ -165,7 +202,7 @@ test("Walks over glass", async (t) => {
         "      ",
         "      ",
       ]),
-      player: { row: 0, col: 0, facing: "down", staffContent: "empty" },
+      player: { row: 0, col: 0, facing: "down", staffContent: [] },
     },
     // prettier-ignore
     target: parseBoard([
@@ -192,7 +229,7 @@ test("Moves a piece of glass", async (t) => {
         "      ",
         "      ",
       ]),
-      player: { row: 0, col: 2, facing: "down", staffContent: "empty" },
+      player: { row: 0, col: 2, facing: "down", staffContent: [] },
     },
     // prettier-ignore
     target: parseBoard([
@@ -219,7 +256,7 @@ test("Move a piece of glass to destroy all the glass", async (t) => {
         "      ",
         "      ",
       ]),
-      player: { row: 1, col: 2, facing: "down", staffContent: "empty" },
+      player: { row: 1, col: 2, facing: "down", staffContent: [] },
     },
     // prettier-ignore
     target: parseBoard([
@@ -247,7 +284,7 @@ test("Fly over a gap", async (t) => {
         "      ",
         "      ",
       ]),
-      player: { row: 1, col: 1, facing: "down", staffContent: "empty" },
+      player: { row: 1, col: 1, facing: "down", staffContent: [] },
     },
     // prettier-ignore
     target: parseBoard([
@@ -259,7 +296,7 @@ test("Fly over a gap", async (t) => {
       "      ",
       "      ",
     ]),
-    solutionLength: 4,
+    solutionLength: 5,
   });
 });
 
@@ -276,7 +313,7 @@ test("Fly over a gap multiple times", async (t) => {
         "      ",
         "      ",
       ]),
-      player: { row: 1, col: 1, facing: "down", staffContent: "empty" },
+      player: { row: 1, col: 1, facing: "down", staffContent: [] },
     },
     // prettier-ignore
     target: parseBoard([
@@ -288,7 +325,7 @@ test("Fly over a gap multiple times", async (t) => {
       "      ",
       "      ",
     ]),
-    solutionLength: 10,
+    solutionLength: 11,
   });
 });
 
@@ -305,7 +342,7 @@ test("Should not fly over a gap more than 1 wide", async (t) => {
         "      ",
         "      ",
       ]),
-      player: { row: 1, col: 1, facing: "down", staffContent: "empty" },
+      player: { row: 1, col: 1, facing: "down", staffContent: [] },
     },
     // prettier-ignore
     target: parseBoard([
@@ -333,7 +370,7 @@ test("Grab a tile while flying", async (t) => {
         "      ",
         "      ",
       ]),
-      player: { row: 1, col: 1, facing: "down", staffContent: "empty" },
+      player: { row: 1, col: 1, facing: "down", staffContent: [] },
     },
     // prettier-ignore
     target: parseBoard([
@@ -345,7 +382,7 @@ test("Grab a tile while flying", async (t) => {
       "      ",
       "      ",
     ]),
-    solutionLength: 8,
+    solutionLength: 9,
   });
 });
 
@@ -374,7 +411,7 @@ test("Eus/Eus search correctness regression", async (t) => {
         row: 2,
         col: 3,
         facing: "left",
-        staffContent: "floor",
+        staffContent: ["floor"],
         wingsActive: false,
       },
     },

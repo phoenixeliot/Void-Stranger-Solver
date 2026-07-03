@@ -320,7 +320,13 @@ test("Heuristic + steps should not exceed target level for all state pairs (admi
         }, transportCost: ${heuristicValues.transportCost}, travelCost: ${
           heuristicValues.travelCost
         }\n${JSON.stringify(
-          heuristic("Eus", state, target, level.requireFinalJump ?? false, NO_BURDENS),
+          heuristic(
+            "Eus",
+            state,
+            target,
+            level.requireFinalJump ?? false,
+            NO_BURDENS,
+          ),
           null,
           2,
         )}\n${renderState(state)}`,

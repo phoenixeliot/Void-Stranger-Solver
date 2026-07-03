@@ -672,7 +672,8 @@ export async function bidirectionalAStar({
   fwdOpen.push({
     state: initial,
     gCost: 0,
-    hCost: heuristic(braneName, initial, target, requireFinalJump, burdens).total,
+    hCost: heuristic(braneName, initial, target, requireFinalJump, burdens)
+      .total,
     action: null,
     parent: null,
   });
@@ -715,7 +716,8 @@ export async function bidirectionalAStar({
     bwdOpen.push({
       state: goalState,
       gCost: 0,
-      hCost: heuristic(braneName, goalState, initial.board, false, burdens).total,
+      hCost: heuristic(braneName, goalState, initial.board, false, burdens)
+        .total,
       action: null,
       parent: null,
     });
@@ -798,7 +800,8 @@ export async function bidirectionalAStar({
         fwdOpen.push({
           state: next,
           gCost: current.gCost + 1,
-          hCost: heuristic(braneName, next, target, requireFinalJump, burdens).total,
+          hCost: heuristic(braneName, next, target, requireFinalJump, burdens)
+            .total,
           action,
           parent: current,
         });
@@ -836,7 +839,13 @@ export async function bidirectionalAStar({
         bwdOpen.push({
           state: predecessor,
           gCost: current.gCost + 1,
-          hCost: heuristic(braneName, predecessor, initial.board, false, burdens).total,
+          hCost: heuristic(
+            braneName,
+            predecessor,
+            initial.board,
+            false,
+            burdens,
+          ).total,
           action,
           parent: current,
         });

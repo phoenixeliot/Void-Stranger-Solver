@@ -44,7 +44,13 @@ function buildFrontier(
   const frontier: SearchNode[] = [];
   const earlyGoals: SearchNode[] = [];
 
-  const initialH = heuristic(braneName, initial, target, requireFinalJump, burdens).total;
+  const initialH = heuristic(
+    braneName,
+    initial,
+    target,
+    requireFinalJump,
+    burdens,
+  ).total;
   open.push({
     state: initial,
     gCost: 0,
@@ -82,7 +88,13 @@ function buildFrontier(
       if (!next) continue;
       if (closed.has(stateKey(next))) continue;
 
-      const nextH = heuristic(braneName, next, target, requireFinalJump, burdens).total;
+      const nextH = heuristic(
+        braneName,
+        next,
+        target,
+        requireFinalJump,
+        burdens,
+      ).total;
       open.push({
         state: next,
         gCost: current.gCost + 1,

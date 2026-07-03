@@ -98,7 +98,13 @@ async function runSearchTest(t: TestContext, level: TestLevel) {
   // Forward: state at index i has i steps taken, path.length - i remaining.
   for (let i = 0; i < statesOnPath.length; i++) {
     const stepsRemaining = path.length - i;
-    const h = heuristic(level.braneName ?? "UNKNOWN", statesOnPath[i]!, target, requireFinalJump, burdens);
+    const h = heuristic(
+      level.braneName ?? "UNKNOWN",
+      statesOnPath[i]!,
+      target,
+      requireFinalJump,
+      burdens,
+    );
     assert.ok(
       h.total <= stepsRemaining,
       `Forward step ${i}/${path.length}: h=${h.total} > ${stepsRemaining} steps remaining. ` +
@@ -108,7 +114,13 @@ async function runSearchTest(t: TestContext, level: TestLevel) {
   // Backward: same states, iterated from the end to make failure messages clearer.
   for (let i = statesOnPath.length - 1; i >= 0; i--) {
     const stepsRemaining = path.length - i;
-    const h = heuristic(level.braneName ?? "UNKNOWN", statesOnPath[i]!, target, requireFinalJump, burdens);
+    const h = heuristic(
+      level.braneName ?? "UNKNOWN",
+      statesOnPath[i]!,
+      target,
+      requireFinalJump,
+      burdens,
+    );
     assert.ok(
       h.total <= stepsRemaining,
       `Backward step ${i}/${path.length}: h=${h.total} > ${stepsRemaining} steps remaining. ` +

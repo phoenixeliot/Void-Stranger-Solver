@@ -149,12 +149,128 @@ export interface HeuristicResult {
   finalJumpCost: number;
 }
 
-// Add brane heuristic.
-export function addHeuristic(
+// The MINIMUM number of moves it takes to go from the tile the player is on to FACING the provided tile.
+export function minMovesToFaceTile(
+  player: PlayerState,
+  targetRow: number,
+  targetCol: number,
+): number {
+  // If we're ON the tile, we would have to move to be able to be able to pick it up, taking a minimum of 3 moves to do so.
+  if (player.row === targetRow && player.col === targetCol) {
+    return 3;
+  }
+  // If we're DIRECTLY NEXT TO the tile but not facing it, it will take a minimum of 2 moves to do so.
+  else if (
+    manhattan(player.row, player.col, targetRow, targetCol) === 1 &&
+    !(facedTile(player)[0] === targetRow && facedTile(player)[1] === targetCol)
+  ) {
+    return 2;
+  }
+  // If it's DIRECTLY DIAGONAL to us, it will take 3 moves to reposition correctly.
+  else if (manhattan(player.row, player.col, targetRow, targetCol) === 2) {
+    return 3;
+  }
+  // Otherwise, the minimum is the Manhattan distance minus 1
+  else {
+    return manhattan(player.row, player.col, targetRow, targetCol) - 1;
+  }
+}
+
+// Utility functions for below.
+function cardinalCellsHasEmpty(
+  row: number,
+  col: number,
+  board: Board,
+): boolean {
+  // Check cardinals for empty.
+  return (
+    (row !== 5 && board[row + 1]![col]! === "empty") ||
+    (row !== 0 && board[row - 1]![col]! === "empty") ||
+    (col !== 5 && board[row]![col + 1]! === "empty") ||
+    (col !== 0 && board[row]![col - 1]! === "empty")
+  );
+}
+function cardinalCellsHasWingFall(
+  row: number,
+  col: number,
+  board: Board,
+): boolean {
+  // These values mean at least one cardinal direction is OOB, which is valid for wingfalling.
+  if (row === 0 || row === 5 || col === 0 || col === 5) {
+    return true;
+  }
+
+  // Check cardinals for walls and empty.
+  return (
+    board[row + 1]![col]! === "empty" ||
+    board[row - 1]![col]! === "empty" ||
+    board[row]![col + 1]! === "empty" ||
+    board[row]![col - 1]! === "empty" ||
+    board[row + 1]![col]! === "wall" ||
+    board[row - 1]![col]! === "wall" ||
+    board[row]![col + 1]! === "wall" ||
+    board[row]![col - 1]! === "wall"
+  );
+}
+
+// Given a position, returns the distance to the nearest empty cell. Accounts for the 0 case. Returns ONLY the distance, not the position of the empty tile found. CAN RETURN INFINITY!
+function distanceToNearestEmpty(
+  row: number,
+  col: number,
+  board: Board,
+): number {
+  // Technically speaking, it would be most efficient to do a flood-fill here. But the board is small. And I don't feel like it. I also don't know how I'd do it.
+  let found = Infinity;
+  for (let r = 0; r < 6; r++) {
+    for (let c = 0; c < 6; c++) {
+      if (board[r]![c]! === "empty") {
+        const dist = manhattan(row, col, r, c);
+        if (dist < found) {
+          found = dist;
+        }
+      }
+    }
+  }
+
+  return found;
+}
+
+// Same as the above, with the difference being that this checks surrounding squares for wall/tile before deeming it valid.
+function distanceToNearestWingfallEmpty(
+  row: number,
+  col: number,
+  board: Board,
+): number {
+  // Technically speaking, it would be most efficient to do a flood-fill here. But the board is small. And I don't feel like it. I also don't know how I'd do it.
+  let found = Infinity;
+  for (let r = 0; r < 6; r++) {
+    for (let c = 0; c < 6; c++) {
+      // Tile is empty.
+      if (board[r]![c]! === "empty") {
+        // Tile borders another empty or wall tile.
+        if (cardinalCellsHasWingFall(r, c, board)) {
+          const dist = manhattan(row, col, r, c);
+          if (dist < found) {
+            found = dist;
+          }
+        }
+      }
+    }
+  }
+
+  return found;
+}
+
+// BRANE HEURISTICS BEGIN //
+
+// Add/Cif brane heuristic.
+// The only tiles this function needs to worry about are empty, solid, stairs, and wall.
+export function addCifHeuristic(
   state: GameState,
   target: Board,
   requireFinalJump: boolean,
   burdens: Burdens,
+  cif: boolean,
 ): HeuristicResult {
   const { board, player, entities } = state;
 
@@ -162,12 +278,47 @@ export function addHeuristic(
   const excess: [number, number, Cell][] = []; // cells with tiles that shouldn't be there
   const deficit: [number, number, Cell][] = []; // cells that need a tile delivered
 
-  const finalJumpCost =
-    requireFinalJump && board[player.row]![player.col]! !== "empty" ?
-      burdens.wings ?
-        2
-      : 1
-    : 0;
+  // Number of moves needed to fall from the player's current position.
+  // This function (should, hopefully) not only be admissible but EXACT.
+  // cardinalCellsHasWingFall doesn't need to worry about Cif's pseudo-wall corners, since being adjacent to any one of them necessarily means being adjacent to OOB.
+  function finalJumpCostCalculator(): number {
+    // This is a non-factor if we're not concerned about the final jump.
+    if (!requireFinalJump) {
+      return 0;
+    }
+
+    // Is the player currently on an empty tile?
+    if (board[player.row]![player.col]! === "empty") {
+      // Does the player have wings active?
+      if (player.wingsActive) {
+        // Adjacent to a wall or other empty cell? One move to fall.
+        if (cardinalCellsHasWingFall(player.row, player.col, board)) {
+          return 1;
+        }
+        // No empty or wall is adjacent, making this tile effectively useless with wings. Find distance to nearest wingfallable empty tile and add 1.
+        else {
+          return distanceToNearestWingfallEmpty(player.row, player.col, board) + 1;
+        }
+      }
+      // If not winged and on empty, we've fallen.
+      else {
+        return 0;
+      }
+    }
+    // Find the nearest empty tile.
+    else {
+      // If player has wings, we need an extra move to fall once we've reached the empty cell.
+      if (burdens.wings) {
+        return distanceToNearestWingfallEmpty(player.row, player.col, board) + 1;
+      }
+      // Otherwise moves to fall is distance from empty.
+      else {
+        return distanceToNearestEmpty(player.row, player.col, board);
+      }
+    }
+  }
+
+  const finalJumpCost = finalJumpCostCalculator();
 
   // We wrap these in IIFEs so the profiler names each part individually
   (function calculateBoardDiff() {
@@ -178,7 +329,7 @@ export function addHeuristic(
 
         if (!cellMatchesTarget(cur, tgt)) {
           mismatches++;
-          
+
           if (cur !== "empty") excess.push([r, c, cur]);
           else if (tgt !== "empty") deficit.push([r, c, tgt]);
         }
@@ -215,7 +366,8 @@ export function addHeuristic(
         player.staffContent.length > 0 &&
         canFill(player.staffContent.at(-1)!, dtype)
       ) {
-        heldCandidate = manhattan(player.row, player.col, dr, dc) - 1;
+        return 0;
+        //heldCandidate = minMovesToFaceTile(player,dr,dc);
       }
 
       // Filter a list of excess tiles which can be used to fill that deficit.
@@ -227,7 +379,10 @@ export function addHeuristic(
         // Add to our total the moving distance between the applicable excess and our currently-viewed deficit.
         filterListCandidate = Math.min(
           ...sources.map(([er, ec]) =>
-            Math.max(0, manhattan(er, ec, dr, dc) - 2),
+            // If S,D distance is exactly 2 we need 2 steps to reposition ourselves.
+            manhattan(er, ec, dr, dc) === 2 ? 2 : (
+              Math.max(0, manhattan(er, ec, dr, dc) - 2)
+            ),
           ),
         );
       }
@@ -262,48 +417,31 @@ export function addHeuristic(
       if (matchingDeficits.length > 0) {
         travelCostDeficits = Math.min(
           ...matchingDeficits.map(([dr, dc]) =>
-            Math.max(0, manhattan(player.row, player.col, dr, dc) - 1),
+            minMovesToFaceTile(player, dr, dc),
           ),
         );
       }
     }
 
     // Removing excess. Must be able to take with the Void Rod.
-    if (
-      excess.length > 0 &&
-      (!holding || burdens.endless)
-    ) {
+    if (excess.length > 0 && (!holding || burdens.endless)) {
       // Player needs to reach adjacent to an excess tile to remove it.
       travelCostExcess = Math.min(
-        ...excess.map(([er, ec]) => (
-          // If we're ON the tile, we would have to move to be able to be able to pick it up, taking a minimum of 3 moves to do so.
-          (player.row === er && player.col === ec) ? 3 :
-
-          // If we're DIRECTLY NEXT TO the tile but not facing it, it will take a minimum of 2 moves to do so.
-          (manhattan(player.row, player.col, er, ec) === 1 && !(facedTile(player)[0] === er && facedTile(player)[1] === ec) ? 2 : 
-
-          // If it's DIRECTLY DIAGONAL to us, it will take 3 moves to reposition correctly.
-          (manhattan(player.row, player.col, er, ec) === 2 ? 3 :
-
-          // Our default case.
-          manhattan(player.row, player.col, er, ec) - 1))
-        ),
-      ));
+        ...excess.map(([er, ec]) => minMovesToFaceTile(player, er, ec)),
+      );
     }
 
-    // Return the least.
+    // Return the least of the two travelCosts and cap at 0 if negative.
     travelCost = Math.max(0, Math.min(travelCostDeficits, travelCostExcess));
 
     // I forget what situations triggers this. Probably just a failsafe.
     if (travelCost === Infinity) {
       travelCost = 0;
-    } else {
-      travelCost = Math.max(0, travelCost);
     }
   })();
 
   return {
-    total: (mismatches + transportCost + travelCost + finalJumpCost),
+    total: mismatches + transportCost + travelCost + finalJumpCost,
     mismatches: mismatches,
     transportCost: transportCost,
     travelCost: travelCost,
@@ -318,15 +456,15 @@ export function heuristic(
   requireFinalJump: boolean,
   burdens: Burdens,
 ): HeuristicResult {
-  if (braneName === "Add") {
-    return addHeuristic(state,target,requireFinalJump,burdens);
+  if (braneName === "Add" || braneName === "Cif") {
+    return addCifHeuristic(state, target, requireFinalJump, burdens, braneName === "Cif");
   }
 
   const { board, player, entities } = state;
 
   // Using this to detect some... stuff?
   // 0 - no entities, just floor & stair tiles
-  let simplifyState = -1
+  let simplifyState = -1;
 
   const peaceful = anyEntities(entities);
 

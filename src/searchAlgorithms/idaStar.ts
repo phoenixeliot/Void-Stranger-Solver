@@ -65,7 +65,13 @@ export async function idaDfs(
     h: number,
   ) => Promise<"found" | "continue">,
 ): Promise<"found" | number> {
-  const h = heuristic(braneName, state, target, requireFinalJump, burdens).total;
+  const h = heuristic(
+    braneName,
+    state,
+    target,
+    requireFinalJump,
+    burdens,
+  ).total;
   const f = g + h;
 
   if (f > threshold) {
@@ -82,7 +88,9 @@ export async function idaDfs(
       console.warn(
         `Pruning state from correct path (above threshold): ${g} + ${h} > ${threshold}\n` +
           `${actionsToString(path)} / ${actionsToString(knownCorrectPath)}\n` +
-          JSON.stringify(heuristic(braneName, state, target, requireFinalJump, burdens)) +
+          JSON.stringify(
+            heuristic(braneName, state, target, requireFinalJump, burdens),
+          ) +
           "\n" +
           renderState(state),
       );
@@ -131,10 +139,11 @@ export async function idaDfs(
 
   for (const action of actions) {
     // Isolated here so it can be used twice.
-    function staffTrims(state: GameState) {
+    function staffTrims(state: GameState, action: Action = "staff") {
       return (
         // EVR and stairs aren't sealed.
-        burdens.endless && stairsActive(state.player.staffContent, state.board, state.entities) &&
+        burdens.endless &&
+        stairsActive(state.player.staffContent, state.board, state.entities) &&
         // No need to ever place the stairs if we have the EVR. (Exception made if we have more tiles behind the stairs in the queue.)
         ((action === "staff" &&
           state.player.staffContent.length === 1 &&
@@ -144,11 +153,12 @@ export async function idaDfs(
           (actions.includes("staff") &&
             action !== "staff" &&
             state.player.staffContent.length === 0 &&
-            readBoardCouplet(state.board, facedTile(state.player)) === "stairs"))
+            readBoardCouplet(state.board, facedTile(state.player)) ===
+              "stairs"))
       );
     }
 
-    if (staffTrims(state)) {
+    if (staffTrims(state, action)) {
       continue;
     }
 

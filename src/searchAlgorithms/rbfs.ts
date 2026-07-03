@@ -63,7 +63,13 @@ async function rbfsDfs(
   if (f > fLimit) return f;
 
   // Compute h separately for accurate logging (f may have been boosted above g+h).
-  const h = heuristic(braneName, state, target, requireFinalJump, burdens).total;
+  const h = heuristic(
+    braneName,
+    state,
+    target,
+    requireFinalJump,
+    burdens,
+  ).total;
 
   counters.nodesExplored++;
 
@@ -93,7 +99,13 @@ async function rbfsDfs(
       continue;
     }
 
-    const nextH = heuristic(braneName, next, target, requireFinalJump, burdens).total;
+    const nextH = heuristic(
+      braneName,
+      next,
+      target,
+      requireFinalJump,
+      burdens,
+    ).total;
     // Ensure f is non-decreasing along any path (required for RBFS correctness
     // when the heuristic is consistent, which it should be here).
     // TODO: But our heuristic isn't quite consistent; is that a problem?
@@ -185,7 +197,13 @@ export async function rbfs({
   visited.add(stateKey(initial));
 
   const path: Action[] = [];
-  const initialH = heuristic(braneName, initial, target, requireFinalJump, burdens).total;
+  const initialH = heuristic(
+    braneName,
+    initial,
+    target,
+    requireFinalJump,
+    burdens,
+  ).total;
 
   const result = await rbfsDfs(
     braneName,

@@ -1385,7 +1385,7 @@ export function replayPath(
     }
     console.log(
       `Step ${i + 1}: ${action} | h: ${
-        heuristic("???", state, target, requireFinalJump, burdens).total
+        heuristic("UNKNOWN", state, target, requireFinalJump, burdens).total
       }\n${renderState(state)}\n`,
     );
     if (isGoal(state, target, requireFinalJump)) {
@@ -1506,13 +1506,13 @@ export function renderState(state: GameState, requiredTiles?: number): string {
   const rows = board.map(
     (row, r) => "│" + row.map((cell, c) => cellChar(cell, r, c)).join("") + "│",
   );
-  const numFloorTilesRemaining =
-    countFloorTiles(board) + floorInStaff(state.player.staffContent);
+  const numFloorTilesRemaining = countFloorTiles(board);
+  const numFloorTilesRemainingAll = numFloorTilesRemaining + floorInStaff(state.player.staffContent);
   const wingsIndicator = state.player.wingsActive ? " 🦋" : "";
   //const swordIndicator = state.player.swordActive ? " 🗡️" : "";
   //const endlessIndicator = state.player.endlessActive ? " 🪄" : "";
   return (
-    `${numFloorTilesRemaining} floor tiles remain${
+    `${numFloorTilesRemaining} (${numFloorTilesRemainingAll} including held) floor tiles remain${
       requiredTiles ? ` out of a necessary ${requiredTiles}` : ""
     }\n` +
     ["┌────────────┐", ...rows, "└────────────┘"].join("\n") +
